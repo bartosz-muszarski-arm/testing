@@ -45,11 +45,21 @@ point used in CI. Outputs are written to `out/`:
 out/metadata.txt  requested source and resolved SHA
 out/build.log     CMake configuration and build output
 out/test.log      smoke-test output
+out/tracetooltests-build.log  Vulkan-only tracetooltests build output
+out/lavapipe-metadata.txt     selected Lavapipe ICD and test settings
+out/lavapipe-vulkaninfo.txt   Vulkan capabilities reported by Lavapipe
+out/tracetooltests-lavapipe-junit.xml  tracetooltests CTest report
 ```
 
 The initial `smoke` suite configures and builds gfxreconstruct with CMake and
 runs CTest when the selected revision exposes tests. It does not arbitrarily
-run one of the built tools.
+run one of the built tools. It also clones the latest default branch of
+ARM-software/tracetooltests, builds its Vulkan-only targets, and runs their
+CTest suite through Mesa Lavapipe. The harness pins the Vulkan loader to
+Lavapipe's CPU ICD and records `vulkaninfo` capabilities. Tests whose
+requirements are unsupported by Lavapipe are reported by CTest as skipped;
+the run does not use `TOOLSTEST_NULL_RUN`, so supported tests retain their
+normal output verification.
 
 ## Trust boundary
 

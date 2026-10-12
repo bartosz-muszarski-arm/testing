@@ -53,3 +53,4 @@ mkdir -p "$build_dir"
 
 "$harness_dir/scripts/build-gfxreconstruct.sh" "$source_dir" "$build_dir" "$build_type" 2>&1 | tee "$out_dir/build.log"
 "$harness_dir/scripts/run-smoke-tests.sh" "$build_dir" 2>&1 | tee "$out_dir/test.log"
+"$harness_dir/scripts/build-tracetooltests-vulkan.sh" "$harness_dir" "$build_type" 2>&1 | tee "$out_dir/tracetooltests-build.log"
