@@ -17,6 +17,7 @@ RUN apt-get update \
         libwayland-dev \
         libx11-dev \
         libxcb1-dev \
+        libxcb-glx0-dev \
         libxcb-randr0-dev \
         libx11-xcb-dev \
         libglu1-mesa-dev \
