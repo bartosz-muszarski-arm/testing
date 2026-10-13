@@ -47,4 +47,16 @@ ctest --test-dir "$build_dir" \
     --output-on-failure \
     --parallel "$build_jobs" \
     --timeout 120 \
+    --exclude-regex '^vulkan_host_image_copy$' \
     --output-junit "$out_dir/tracetooltests-lavapipe-junit.xml"
+
+# Ubuntu 24.04's validation layer only supports Vulkan 1.3. It rejects the
+# Vulkan 1.4 feature structure used by this test before the driver receives
+# it, although Lavapipe supports the feature and the test passes normally.
+# Keep validation enabled for the rest of the suite and run this one Vulkan
+# 1.4 test directly without that incompatible layer.
+printf '%s\n' \
+    'vulkan_host_image_copy: run without VK_LAYER_KHRONOS_validation (Ubuntu 24.04 layer is Vulkan 1.3)' \
+    | tee "$out_dir/tracetooltests-validation-exceptions.txt"
+env -u VK_INSTANCE_LAYERS "$build_dir/vulkan_host_image_copy" \
+    2>&1 | tee "$out_dir/vulkan_host_image_copy.log"
