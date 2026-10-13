@@ -14,10 +14,12 @@ RUN apt-get update \
         git \
         libvulkan-dev \
         liblz4-dev \
+        libzstd-dev \
         libwayland-dev \
         libx11-dev \
         libxcb1-dev \
         libxcb-glx0-dev \
+        libxcb-keysyms1-dev \
         libxcb-randr0-dev \
         libx11-xcb-dev \
         libglu1-mesa-dev \

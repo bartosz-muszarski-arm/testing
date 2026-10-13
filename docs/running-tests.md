@@ -36,7 +36,21 @@ Prepare submodules in the local checkout first:
 git -C /work/repos/gfxreconstruct submodule update --init --recursive
 ```
 
-Set `BUILD_JOBS` to cap concurrent compiler jobs (default: `2`), for example `make test SOURCE_DIR=/work/repos/gfxreconstruct BUILD_JOBS=1`. This value is passed to CMake as `--parallel N`, which is supported by both the LunarG upstream and ARM-derived CMake builds.
+Local `make test` is deliberately conservative: it defaults to one build/test
+job, one Lavapipe thread, one Docker CPU, a 4 GiB memory cap, no container
+swap, and a 256-process cap. This prevents a local run from exhausting an
+interactive workstation. GitHub Actions is unaffected.
+
+Increase limits explicitly only when the machine has spare capacity, for
+example:
+
+```bash
+make test SOURCE_DIR=/work/repos/gfxreconstruct \
+  BUILD_JOBS=2 LOCAL_DOCKER_CPUS=2 LOCAL_DOCKER_MEMORY=6g LAVAPIPE_THREADS=2
+```
+
+`BUILD_JOBS` is passed to CMake and CTest as `--parallel N`, which is supported
+by both the LunarG upstream and ARM-derived CMake builds.
 
 `make test` builds the local test image and launches the canonical test entry
 point used in CI. Outputs are written to `out/`:
