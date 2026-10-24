@@ -1,0 +1,28 @@
+description: Prefer coherent upload, cached readback, and local-only image memory when cached memory precedes coherent memory on replay.
+profile: VulkanCore-1.4
+
+capture:
+  memory-types:
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT]
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_CACHED]
+    - [DEVICE_LOCAL, LAZILY_ALLOCATED]
+    - [DEVICE_LOCAL, PROTECTED]
+
+replay:
+  memory-types:
+    - [DEVICE_LOCAL]
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_CACHED]
+    - [DEVICE_LOCAL, LAZILY_ALLOCATED]
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT]
+    - [DEVICE_LOCAL, PROTECTED]
+  arguments: [--memory-translation, rebind]
+
+observe:
+  upload-buffer: memory-type
+  readback-buffer: memory-type
+  optimal-image: memory-type
+
+expect:
+  upload-buffer: {memory-type-index: 3}
+  readback-buffer: {memory-type-index: 1}
+  optimal-image: {memory-type-index: 0}

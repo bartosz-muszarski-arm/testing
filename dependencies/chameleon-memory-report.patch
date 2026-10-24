@@ -1,0 +1,56 @@
+--- a/src/chameleon/vulkan_print.cpp
++++ b/src/chameleon/vulkan_print.cpp
+@@ -147,6 +147,21 @@
+ 		histogramv[_to_string(pair.first)] = (Json::Value::UInt64)pair.second;
+ 	}
+ 	return histogramv;
++}
++
++// Stable object/allocation identities remain valid after Vulkan handles are destroyed.
++template<typename T>
++static Json::Value memory_binding(const T& object, const char* kind)
++{
++	Json::Value value = json_base(object);
++	value["kind"] = kind;
++	if (object.memory)
++	{
++		value["allocation_uid"] = object.memory->uid;
++		value["memory_type_index"] = object.memory->memoryTypeIndex;
++		value["memory_offset"] = (Json::UInt64)object.memoryOffset;
++	}
++	return value;
+ }
+ 
+ void json_overview(const std::string& report_name, cVkInstance* instance, bool hw_info)
+@@ -184,10 +199,31 @@
+ 		pdv["device_name"] = pdev.properties.deviceName;
+ 		pdv["android_hw_level"] = android_hw_level(*reinterpret_cast<VkPhysicalDeviceFeatures*>(pdev.features[VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2].first));
+ 		pdv["gpu_path"] = getenv("CHAMELEON_GPU");
++		pdv["memory_types"] = Json::arrayValue;
++		for (uint32_t i = 0; i < pdev.memoryProperties.memoryTypeCount; ++i)
++		{
++			Json::Value value;
++			value["heap_index"] = pdev.memoryProperties.memoryTypes[i].heapIndex;
++			value["property_flags"] = pdev.memoryProperties.memoryTypes[i].propertyFlags;
++			pdv["memory_types"].append(value);
++		}
++		pdv["memory_heaps"] = Json::arrayValue;
++		for (uint32_t i = 0; i < pdev.memoryProperties.memoryHeapCount; ++i)
++		{
++			Json::Value value;
++			value["size"] = (Json::UInt64)pdev.memoryProperties.memoryHeaps[i].size;
++			value["flags"] = pdev.memoryProperties.memoryHeaps[i].flags;
++			pdv["memory_heaps"].append(value);
++		}
+ 		pdv["devices"] = Json::arrayValue;
+ 		for (cVkDevice& dev : pdev.devices)
+ 		{
+ 			Json::Value dv = json_base(dev);
++			dv["memory_bindings"] = Json::arrayValue;
++			for (const cVkBuffer& buffer : dev.buffers)
++				dv["memory_bindings"].append(memory_binding(buffer, "buffer"));
++			for (const cVkImage& image : dev.images)
++				dv["memory_bindings"].append(memory_binding(image, "image"));
+ 			dv["enabled_device_extensions"] = Json::arrayValue;
+ 			for (const std::string& extension : dev.enabledExtensions)
+ 			{

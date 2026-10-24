@@ -3,20 +3,23 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: %s --source-dir <mounted gfxreconstruct checkout> [--build-type Release]\n' "$0" >&2
+    printf 'Usage: %s --source-dir <mounted gfxreconstruct checkout> [--suite smoke|contracts] [--build-type Release]\n' "$0" >&2
 }
 
 harness_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source_dir=''
 build_type=Release
+suite=smoke
 while (($#)); do
     case "$1" in
         --source-dir) source_dir=${2:?missing value for --source-dir}; shift 2 ;;
         --build-type) build_type=${2:?missing value for --build-type}; shift 2 ;;
+        --suite) suite=${2:?missing value for --suite}; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage; exit 2 ;;
     esac
 done
+[[ $suite == smoke || $suite == contracts ]] || { printf 'Unsupported suite: %s\n' "$suite" >&2; exit 2; }
 
 [[ -n $source_dir && -f $source_dir/CMakeLists.txt ]] || {
     printf 'Expected a gfxreconstruct source directory: %s\n' "$source_dir" >&2
@@ -46,10 +49,13 @@ mkdir -p "$build_dir"
 {
     printf 'Source: local checkout (%s)\n' "$source_dir"
     printf 'Resolved SHA: %s\n' "$source_sha"
-    printf 'Suite: smoke\n'
+    printf 'Suite: %s\n' "$suite"
     printf 'Build type: %s\n' "$build_type"
     printf 'CMake: %s\n' "$(cmake --version | head -n1)"
 } | tee "$out_dir/metadata.txt"
 
 "$harness_dir/scripts/build-gfxreconstruct.sh" "$source_dir" "$build_dir" "$build_type" 2>&1 | tee "$out_dir/build.log"
 "$harness_dir/scripts/run-smoke-tests.sh" "$build_dir" 2>&1 | tee "$out_dir/test.log"
+if [[ $suite == contracts ]]; then
+    bash "$harness_dir/scripts/run-contract-tests.sh" "$build_dir" 2>&1 | tee "$out_dir/contracts.log"
+fi

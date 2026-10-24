@@ -12,7 +12,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke]
+        options: [smoke, contracts]
       build_type:
         description: CMake build type
         required: true

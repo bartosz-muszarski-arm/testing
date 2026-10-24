@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'Usage: %s --repository <GitHub /tree/ref or /commit/SHA URL> [--suite smoke] [--build-type Release]\n' "$0" >&2
+    printf 'Usage: %s --repository <GitHub /tree/ref or /commit/SHA URL> [--suite smoke|contracts] [--build-type Release]\n' "$0" >&2
 }
 
 harness_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -22,7 +22,7 @@ done
 
 [[ -n $repository ]] || { usage; exit 2; }
 [[ $repository == https://github.com/*/tree/* || $repository == https://github.com/*/commit/* ]] || { printf "Repository must be a GitHub /tree/<branch> or /commit/<SHA> URL\n" >&2; exit 2; }
-[[ $suite == smoke ]] || { printf 'Unsupported suite: %s\n' "$suite" >&2; exit 2; }
+[[ $suite == smoke || $suite == contracts ]] || { printf 'Unsupported suite: %s\n' "$suite" >&2; exit 2; }
 [[ $build_type =~ ^(Debug|Release|RelWithDebInfo|MinSizeRel)$ ]] || {
     printf 'Unsupported build type: %s\n' "$build_type" >&2; exit 2;
 }
@@ -55,3 +55,6 @@ source_sha=$(git -C "$source_dir" rev-parse HEAD)
 
 "$harness_dir/scripts/build-gfxreconstruct.sh" "$source_dir" "$build_dir" "$build_type" 2>&1 | tee "$out_dir/build.log"
 "$harness_dir/scripts/run-smoke-tests.sh" "$build_dir" 2>&1 | tee "$out_dir/test.log"
+if [[ $suite == contracts ]]; then
+    bash "$harness_dir/scripts/run-contract-tests.sh" "$build_dir" 2>&1 | tee "$out_dir/contracts.log"
+fi

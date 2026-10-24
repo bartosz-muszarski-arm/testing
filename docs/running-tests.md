@@ -1,5 +1,9 @@
 # Running gfxreconstruct tests
 
+The optional `contracts` suite runs YAML-described capture/replay cases through
+Chameleon. See [Chameleon contracts](contracts.md) for the case structure,
+supplied-binary interface, and independent report validation.
+
 The harness runs code from a requested **public GitHub repository** in an
 Ubuntu 24.04 Docker environment. The same `scripts/run-tests.sh` command is
 used by GitHub Actions and local development.
@@ -9,8 +13,8 @@ used by GitHub Actions and local development.
 Open **Actions → gfxreconstruct test → Run workflow** and provide a public GitHub URL that identifies the revision. Use either of these forms:
 
 ```text
-https://github.com/bartosz-muszarski-arm/gfxreconstruct/tree/rebind-vma-backend
-https://github.com/bartosz-muszarski-arm/gfxreconstruct/commit/b372a11bcdece51c3cacf7aa570cee9ced3bcc02
+https://github.com/owner/gfxreconstruct/tree/branch
+https://github.com/owner/gfxreconstruct/commit/<SHA>
 ```
 
 The run summary records the final resolved commit SHA, and logs/reports are
@@ -21,22 +25,22 @@ available as an Actions artifact.
 Install Docker, clone this harness, then run:
 
 ```bash
-make test REPOSITORY=https://github.com/bartosz-muszarski-arm/gfxreconstruct/tree/rebind-vma-backend
+make test REPOSITORY=https://github.com/owner/gfxreconstruct/tree/branch
 ```
 
 To test an existing local checkout in that same container, use the same target with `SOURCE_DIR`. The checkout is mounted writable because gfxreconstruct's CMake configuration creates source-tree lock/generated files; build products and logs stay in this harness repository.
 
 ```bash
-make test SOURCE_DIR=/work/repos/gfxreconstruct
+make test SOURCE_DIR=/path/to/gfxreconstruct
 ```
 
 Prepare submodules in the local checkout first:
 
 ```bash
-git -C /work/repos/gfxreconstruct submodule update --init --recursive
+git -C /path/to/gfxreconstruct submodule update --init --recursive
 ```
 
-Set `BUILD_JOBS` to cap concurrent compiler jobs (default: `2`), for example `make test SOURCE_DIR=/work/repos/gfxreconstruct BUILD_JOBS=1`. This value is passed to CMake as `--parallel N`, which is supported by both the LunarG upstream and ARM-derived CMake builds.
+Set `BUILD_JOBS` to cap concurrent compiler jobs (default: `2`), for example `make test SOURCE_DIR=/path/to/gfxreconstruct BUILD_JOBS=1`. This value is passed to CMake as `--parallel N`, which is supported by the upstream CMake build.
 
 `make test` builds the local test image and launches the canonical test entry
 point used in CI. Outputs are written to `out/`:

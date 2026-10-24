@@ -1,0 +1,23 @@
+description: Select coherent upload, cached readback, and device-local image memory when host-visible types are split.
+profile: VulkanCore-1.4
+
+capture:
+  memory-types:
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT, HOST_CACHED]
+
+replay:
+  memory-types:
+    - [DEVICE_LOCAL]
+    - [HOST_VISIBLE, HOST_CACHED]
+    - [HOST_VISIBLE, HOST_COHERENT]
+  arguments: [--memory-translation, rebind]
+
+observe:
+  upload-buffer: memory-type
+  readback-buffer: memory-type
+  optimal-image: memory-type
+
+expect:
+  upload-buffer: [HOST_VISIBLE, HOST_COHERENT]
+  readback-buffer: [HOST_VISIBLE, HOST_CACHED]
+  optimal-image: [DEVICE_LOCAL]
