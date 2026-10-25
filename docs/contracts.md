@@ -33,7 +33,9 @@ The report records this as `optimization.status: not_needed`, with the reason
 and actual replay input. Optimizer failures, empty output, and unexplained
 missing output stop the run. Optimization needs no case-specific YAML configuration.
 
-`expect` lists required properties, allowing additional flags. `observe` currently
+`expect` lists the exact properties of the expected replay memory type. Property
+order does not matter; additional or missing flags fail the contract. For example,
+`[DEVICE_LOCAL]` requires local-only memory and rejects a host-visible local type. `observe` currently
 supports `memory-type`. Every name must identify exactly one bound object during
 each stage. Missing or ambiguous evidence is `INCONCLUSIVE`, not a pass. Wrong
 properties or an unexpected effective driver configuration are `FAIL`. A workload
@@ -41,8 +43,11 @@ exit of 77 is a capability `SKIP`. Other compilation, capture, optimization,
 replay, or timeout failures are `ERROR`.
 Every non-PASS result makes the runner exit nonzero.
 
-An expectation can instead specify `{memory-type-index: 0}` to require an exact
-index. Top-level `expect` applies to replay and covers every observed object.
+The case definitions and terminal/HTML reports use property names. Raw
+observations retain the actual type indices. An expectation can still specify
+`{memory-type-index: 0}` for a test specifically about index identity; reporting
+expands it to properties and includes indices when equal flags would hide the
+mismatch. Top-level `expect` applies to replay and covers every observed object.
 
 Memory types are ordered as written. The runner creates one 1-GiB heap for
 device-local types and one for non-local types; types in either group share that
@@ -65,11 +70,11 @@ an ordinary heap; protected memory uses a separate heap.
 The case lists only the ordered memory properties for capture and replay. The
 runner supplies the ordinary/protected heap split, with synthetic non-limiting
 capacities of 1 GiB ordinary and 128 MiB protected. It uses the
-adjacent `workload.cpp` and checks indices 0, 1, 0
-for `upload-buffer` (TRANSFER_SRC), `readback-buffer` (TRANSFER_DST), and
-`optimal-image` during replay. Capture bindings remain in the observation report.
+adjacent `workload.cpp` and expects coherent host-visible device-local memory
+for `upload-buffer` (TRANSFER_SRC) and `optimal-image`, and cached noncoherent
+host-visible device-local memory for `readback-buffer` (TRANSFER_DST). Capture bindings remain in the observation report.
 There is no ordinary device-local-only type;
-the image stays on type 0. Lazy and protected types are exposed but not allocated.
+the image stays on coherent host-visible device-local memory. Lazy and protected types are exposed but not allocated.
 The shared fixture writes a 1024-byte pattern to the coherent upload allocation
 without an explicit flush, submits a buffer-to-image copy followed by an
 image-to-buffer copy, waits for a fence, maps and invalidates readback memory,
@@ -91,19 +96,19 @@ The synchronization follows the [Vulkan synchronization examples](https://docs.v
 
 `buffer-memory-selection/added-local-only-type` captures the same layout and
 replays with device-local-only, coherent, lazy, cached, and protected types in
-that order. It checks replay indices 1, 3, 0 for upload, readback, and image,
-respectively. This tests resource-specific selection when a local-only choice
+that order. It expects coherent upload memory, cached noncoherent readback
+memory, and local-only image memory. This tests resource-specific selection when a local-only choice
 becomes available and host-visible type indices change. The heap topology stays
 the same; the new type shares the ordinary device-local heap.
 
 `buffer-memory-selection/cached-before-coherent` retains the common capture
 layout and replays with local-only, cached, lazy, coherent, and protected types.
-Upload must select coherent type 3, readback cached type 1, and the optimal image
-local-only type 0.
+Upload must select coherent memory, readback cached noncoherent memory, and
+the optimal image local-only memory.
 
 `buffer-memory-selection/combined-coherent-cached` uses the same order, but
-replay type 3 is both coherent and cached. Upload and readback must prefer that
-combined type over cached-only type 1; the image must select local-only type 0.
+the coherent replay type is also cached. Upload and readback must prefer that
+combined type over cached-only memory; the image must select local-only memory.
 Together, these cases distinguish reordered memory types from changes to their
 cache and coherence properties. Chameleon runs observe selection and submitted
 transfers; they do not verify transfer results or effective hardware cache
@@ -111,13 +116,13 @@ maintenance.
 
 `buffer-memory-selection/coherent-type-becomes-cached` captures local-only,
 coherent, lazy, cached, and protected types. Replay swaps the coherent and cached
-positions. Upload must move from captured type 1 to replay type 3 even though
-replay type 1 remains host-visible and bindable. Readback moves from type 3 to
-1, and the image stays on local-only type 0.
+positions. Upload must move to the coherent replay type even though its captured
+index now refers to host-visible, bindable noncoherent memory. Readback must use
+cached noncoherent memory, and the image must stay on local-only memory.
 
 `buffer-memory-selection/cached-type-gains-coherence` uses the same capture
 layout, but replay type 3 is both coherent and cached. Upload and readback must
-select type 3, while the image stays on type 0. Both cases use the same workload
+select type 3, while the image stays on coherent host-visible device-local memory. Both cases use the same workload
 and capture upload writes without an explicit flush. They exercise one upload
 and submission; repeated reuse and effective hardware cache visibility require
 additional coverage.

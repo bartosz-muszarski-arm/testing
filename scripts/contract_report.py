@@ -41,7 +41,9 @@ def collect(runs):
     return rows
 
 
-def expectation(value):
+def expectation(value, properties=None):
+    if properties is not None:
+        return " + ".join(properties)
     if isinstance(value, dict):
         return "type " + str(value["memory-type-index"])
     if isinstance(value, list):
@@ -59,7 +61,7 @@ def selection(stage, name):
     index = obj.get("memory_type_index")
     if index is None:
         return "Unbound object"
-    return "type " + str(index) + ": " + " + ".join(obj.get("properties", []))
+    return " + ".join(obj.get("properties", []))
 
 
 def failure_details(row):
@@ -71,11 +73,20 @@ def failure_details(row):
         detail = check["check"]
         if "expected" in check:
             actual = check.get("observed")
-            if isinstance(check["expected"], dict) and actual is not None:
-                actual = "type " + str(actual)
+            expected = expectation(check["expected"], check.get("expected_properties"))
+            if isinstance(check["expected"], dict):
+                properties = check.get("observed_properties")
+                if properties is not None:
+                    actual = " + ".join(properties)
+                    # Equal flags do not make distinct memory types interchangeable.
+                    if properties == check.get("expected_properties") and check.get("observed") is not None:
+                        actual += " (type " + str(check["observed"]) + ")"
+                        expected += " (type " + str(check["expected"]["memory-type-index"]) + ")"
+                elif actual is not None:
+                    actual = "type " + str(actual)
             elif isinstance(actual, list):
                 actual = " + ".join(actual)
-            detail += ": " + str(actual) + " → expected " + expectation(check["expected"])
+            detail += ": " + str(actual) + " → expected " + expected
         elif check.get("reason"):
             detail += ": " + check["reason"]
         details.append(detail)
@@ -140,7 +151,8 @@ def render(rows, runs, output, exit_status):
             for name in names:
                 check = replay_checks.get(name, {})
                 cells = (name, selection(stages.get("capture", {}), name),
-                         selection(stages.get("replay", {}), name), expectation(check.get("expected")),
+                         selection(stages.get("replay", {}), name),
+                         expectation(check.get("expected"), check.get("expected_properties")),
                          check.get("status", "INCONCLUSIVE"))
                 body += "<tr>" + "".join("<td>" + escape(cell) + "</td>" for cell in cells) + "</tr>"
             body += "</tbody></table></div>"

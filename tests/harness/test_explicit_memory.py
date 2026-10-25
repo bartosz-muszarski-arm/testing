@@ -112,11 +112,12 @@ class ExplicitMemory(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.load_modified_case(case)
 
-    def test_equivalent_platform_indices_pass(self):
+    def test_equivalent_platform_properties_pass(self):
         result = contract.validate(self.case, self.observations())
         self.assertEqual(result["status"], "PASS")
 
     def test_wrong_index_fails_despite_matching_properties(self):
+        self.case["expect"]["upload-buffer"] = {"memory-type-index": 0}
         report = self.observations()
         # Another type with identical properties must not replace captured index 0.
         for stage in ("capture", "replay"):
@@ -129,6 +130,15 @@ class ExplicitMemory(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(next(c for c in result["checks"] if c["status"] == "FAIL")["check"], "replay/upload-buffer")
 
+    def test_property_expectation_accepts_another_type_with_identical_flags(self):
+        report = self.observations()
+        for stage in ("capture", "replay"):
+            self.case[stage]["memory-types"].append(copy.deepcopy(self.case[stage]["memory-types"][0]))
+            report["stages"][stage]["memory_types"].append(
+                copy.deepcopy(report["stages"][stage]["memory_types"][0]))
+        report["stages"]["replay"]["objects"]["upload-buffer"][0]["memory_type_index"] = 4
+        self.assertEqual(contract.validate(self.case, report)["status"], "PASS")
+
     def test_capture_expectations_are_rejected(self):
         case = copy.deepcopy(self.case)
         case["capture"]["expect"] = {"upload-buffer": {"memory-type-index": 0}}
@@ -139,7 +149,7 @@ class ExplicitMemory(unittest.TestCase):
         for index in (-1, 4, True):
             with self.subTest(index=index):
                 case = copy.deepcopy(self.case)
-                case["expect"]["upload-buffer"]["memory-type-index"] = index
+                case["expect"]["upload-buffer"] = {"memory-type-index": index}
                 with self.assertRaises(ValueError):
                     self.load_modified_case(case)
 

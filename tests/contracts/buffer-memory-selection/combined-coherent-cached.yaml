@@ -23,6 +23,6 @@ observe:
   optimal-image: memory-type
 
 expect:
-  upload-buffer: {memory-type-index: 3}
-  readback-buffer: {memory-type-index: 3}
-  optimal-image: {memory-type-index: 0}
+  upload-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT, HOST_CACHED]
+  readback-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT, HOST_CACHED]
+  optimal-image: [DEVICE_LOCAL]

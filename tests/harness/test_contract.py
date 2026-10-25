@@ -23,8 +23,13 @@ class ContractValidation(unittest.TestCase):
             raw = {"physical_devices": [layout | {"devices": [{"memory_bindings": bindings}]}]}
             self.report["stages"][stage] = contract.normalize(raw, self.case["observe"])
 
-    def test_required_properties_allow_additional_flags(self):
+    def test_selected_properties_match_expectations(self):
         self.assertEqual(contract.validate(self.case, self.report)["status"], "PASS")
+
+    def test_local_only_image_rejects_additional_host_visible_properties(self):
+        self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = [
+            "DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]
+        self.assertEqual(contract.validate(self.case, self.report)["status"], "FAIL")
 
     def test_host_coherence_is_required_not_just_visibility(self):
         self.report["stages"]["replay"]["objects"]["upload-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]

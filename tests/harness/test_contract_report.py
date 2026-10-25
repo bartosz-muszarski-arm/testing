@@ -38,7 +38,8 @@ class ContractReport(unittest.TestCase):
                        "replay": {"objects": {"readback-buffer": [{"memory_type_index": 1,
                 "properties": ["HOST_VISIBLE", "HOST_CACHED"]}]}}}}
         self.result = {"status": "FAIL", "checks": [{"check": "replay/readback-buffer", "status": "FAIL",
-                      "expected": {"memory-type-index": 3}, "observed": 1}]}
+                      "expected": ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"],
+                      "observed": ["HOST_VISIBLE", "HOST_CACHED"]}]}
         (self.run / "observations.json").write_text(json.dumps(self.observed))
         (self.run / "result.json").write_text(json.dumps(self.result))
         (self.run / "input.gfxr").write_bytes(b"capture")
@@ -53,8 +54,9 @@ class ContractReport(unittest.TestCase):
         page = contract_report.render(rows, self.runs, self.root / "report.html", 1)
         self.assertNotIn("<script>", page)
         self.assertIn("&lt;script&gt;", page)
-        self.assertIn("type 1: HOST_VISIBLE + HOST_CACHED", page)
-        self.assertIn("type 3", page)
+        self.assertIn("HOST_VISIBLE + HOST_CACHED", page)
+        self.assertIn("HOST_VISIBLE + HOST_COHERENT + HOST_CACHED", page)
+        self.assertNotIn("type 3", page)
         self.assertIn("not_needed", page)
         self.assertIn("input.gfxr", page)
 
@@ -72,6 +74,24 @@ class ContractReport(unittest.TestCase):
         (self.run / "result.json").write_text("{")
         self.assertEqual([row["result"]["status"] for row in contract_report.collect(self.runs)],
                          ["ERROR", "ERROR"])
+
+    def test_index_failure_displays_properties(self):
+        check = self.result["checks"][0]
+        check["expected"] = {"memory-type-index": 3}
+        check["observed"] = 1
+        check["expected_properties"] = ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"]
+        check["observed_properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
+        row = {"result": self.result}
+        self.assertEqual(contract_report.failure_details(row), [
+            "replay/readback-buffer: HOST_VISIBLE + HOST_CACHED → expected HOST_VISIBLE + HOST_COHERENT + HOST_CACHED"])
+
+    def test_equal_properties_keep_indices_visible(self):
+        check = self.result["checks"][0]
+        check["expected"] = {"memory-type-index": 3}
+        check["observed"] = 1
+        check["expected_properties"] = check["observed_properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
+        self.assertEqual(contract_report.failure_details({"result": self.result}), [
+            "replay/readback-buffer: HOST_VISIBLE + HOST_CACHED (type 1) → expected HOST_VISIBLE + HOST_CACHED (type 3)"])
 
 
 if __name__ == "__main__":

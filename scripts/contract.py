@@ -197,8 +197,8 @@ def validate(case, report):
                     type(objects[0].get("memory_type_index")) is not int or
                     not 0 <= objects[0]["memory_type_index"] < len(expected["memory_types"])):
                 status, reason = "INCONCLUSIVE", "expected one uniquely named, bound object"
-            elif isinstance(expectation, list) and not set(expectation) <= set(objects[0]["properties"]):
-                status, reason = "FAIL", "required properties are absent"
+            elif isinstance(expectation, list) and set(expectation) != set(objects[0]["properties"]):
+                status, reason = "FAIL", "memory properties do not match"
             elif isinstance(expectation, dict) and objects[0]["memory_type_index"] != expectation["memory-type-index"]:
                 status, reason = "FAIL", "unexpected memory type index"
             check = {"check": stage + "/" + name, "status": status, "reason": reason}
@@ -206,6 +206,10 @@ def validate(case, report):
                 check["expected"] = expectation
                 field = "memory_type_index" if isinstance(expectation, dict) else "properties"
                 check["observed"] = objects[0].get(field) if len(objects) == 1 else None
+                if isinstance(expectation, dict):
+                    flags = expected["memory_types"][expectation["memory-type-index"]]["property_flags"]
+                    check["expected_properties"] = [p for p, flag in FLAGS.items() if flags & flag]
+                    check["observed_properties"] = objects[0].get("properties") if len(objects) == 1 else None
             checks.append(check)
     statuses = {check["status"] for check in checks}
     status = "FAIL" if "FAIL" in statuses else "INCONCLUSIVE" if "INCONCLUSIVE" in statuses else "PASS"
