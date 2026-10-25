@@ -9,6 +9,8 @@ buffer-memory-selection/
   added-local-only-type.yaml
   cached-before-coherent.yaml
   combined-coherent-cached.yaml
+  coherent-type-becomes-cached.yaml
+  cached-type-gains-coherence.yaml
   split-host-visible-types.yaml
 ```
 
@@ -68,9 +70,12 @@ for `upload-buffer` (TRANSFER_SRC), `readback-buffer` (TRANSFER_DST), and
 `optimal-image` during replay. Capture bindings remain in the observation report.
 There is no ordinary device-local-only type;
 the image stays on type 0. Lazy and protected types are exposed but not allocated.
-The shared fixture writes a 1024-byte pattern to the coherent upload allocation,
-flushes it, submits a buffer-to-image copy followed by an image-to-buffer copy,
-waits for a fence, maps and invalidates readback memory, and reads every byte.
+The shared fixture writes a 1024-byte pattern to the coherent upload allocation
+without an explicit flush, submits a buffer-to-image copy followed by an
+image-to-buffer copy, waits for a fence, maps and invalidates readback memory,
+and reads every byte. Capture relies on the upload allocation's HOST_COHERENT
+property; replay must preserve the required visibility when restoring those
+writes. Readback invalidation remains necessary for noncoherent memory.
 Image layout transitions and a transfer-to-host barrier establish the required
 ordering and visibility. Dedicated allocations are mapped and maintained in
 full, avoiding noncoherent atom alignment issues with subranges.
@@ -103,6 +108,19 @@ Together, these cases distinguish reordered memory types from changes to their
 cache and coherence properties. Chameleon runs observe selection and submitted
 transfers; they do not verify transfer results or effective hardware cache
 maintenance.
+
+`buffer-memory-selection/coherent-type-becomes-cached` captures local-only,
+coherent, lazy, cached, and protected types. Replay swaps the coherent and cached
+positions. Upload must move from captured type 1 to replay type 3 even though
+replay type 1 remains host-visible and bindable. Readback moves from type 3 to
+1, and the image stays on local-only type 0.
+
+`buffer-memory-selection/cached-type-gains-coherence` uses the same capture
+layout, but replay type 3 is both coherent and cached. Upload and readback must
+select type 3, while the image stays on type 0. Both cases use the same workload
+and capture upload writes without an explicit flush. They exercise one upload
+and submission; repeated reuse and effective hardware cache visibility require
+additional coverage.
 
 These expectations define the replay selection policy being tested. They are
 not universal Vulkan requirements or a claim that the preferred type is fastest
@@ -180,7 +198,7 @@ python3 -m unittest discover -s tests/harness -v
 ```
 
 All memory-selection cases cover buffer/image creation, memory requirements,
-allocation, binding, debug names, host mapping, flush/invalidate, image layout
+allocation, binding, debug names, host mapping, readback invalidation, image layout
 transitions, transfer commands, queue submission, and fence completion. They
 exercise GFXR capture, optimization, and replay with `--memory-translation rebind`,
 using the original trace when the optimizer explicitly reports no changes.

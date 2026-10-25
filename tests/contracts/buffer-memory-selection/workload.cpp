@@ -161,12 +161,7 @@ int main(int argc, char** argv)
     void* mapped;
     check(vkMapMemory(device, upload_memory, 0, VK_WHOLE_SIZE, 0, &mapped));
     std::memcpy(mapped, expected, data_size);
-    // Whole dedicated allocations avoid nonCoherentAtomSize subrange issues.
-    // These calls are valid for coherent memory too and expose CPU access intent.
-    VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
-    range.memory = upload_memory;
-    range.size = VK_WHOLE_SIZE;
-    check(vkFlushMappedMemoryRanges(device, 1, &range));
+    // Upload memory is HOST_COHERENT; capture intentionally has no explicit flush.
     vkUnmapMemory(device, upload_memory);
 
     VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -183,7 +178,7 @@ int main(int argc, char** argv)
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(vkBeginCommandBuffer(command, &begin));
 
-    // Submission makes the flushed CPU upload available to the transfer.
+    // Submission makes the coherent CPU upload available to the transfer.
     VkImageMemoryBarrier image_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -225,7 +220,10 @@ int main(int argc, char** argv)
     check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
 
     check(vkMapMemory(device, readback_memory, 0, VK_WHOLE_SIZE, 0, &mapped));
+    // Map and invalidate the whole allocation to satisfy noncoherent atom alignment.
+    VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
     range.memory = readback_memory;
+    range.size = VK_WHOLE_SIZE;
     check(vkInvalidateMappedMemoryRanges(device, 1, &range));
     // Read every byte even on an observation driver; only comparison is optional.
     const volatile unsigned char* readback = static_cast<unsigned char*>(mapped);
