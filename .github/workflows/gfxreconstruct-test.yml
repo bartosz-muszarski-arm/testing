@@ -37,6 +37,7 @@ jobs:
         run: docker build --tag gfxreconstruct-test-env:${{ github.sha }} .
 
       - name: Build and test requested revision
+        id: tests
         env:
           REPOSITORY: ${{ inputs.repository }}
           SUITE: ${{ inputs.suite }}
@@ -55,20 +56,8 @@ jobs:
               --suite "$SUITE" \
               --build-type "$BUILD_TYPE"
 
-      - name: Add result summary
-        if: always()
-        run: |
-          if [[ -f out/metadata.txt ]]; then
-            {
-              echo '## gfxreconstruct test result'
-              echo
-              echo '```text'
-              cat out/metadata.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - name: Upload logs and reports
+        id: reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -76,3 +65,35 @@ jobs:
           path: out/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Add result summary
+        if: always()
+        env:
+          SUITE: ${{ inputs.suite }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          ARTIFACT_URL: ${{ steps.reports.outputs.artifact-url }}
+        run: |
+          {
+            if [[ $SUITE == contracts && -f out/contracts-report.md ]]; then
+              cat out/contracts-report.md
+            else
+              printf '## GFXReconstruct %s test result\n\n' "$SUITE"
+              printf 'Build and test step: **%s**.\n\n' "$TEST_OUTCOME"
+              if [[ $SUITE == contracts ]]; then
+                printf 'No contract report was produced. See the build and test logs.\n\n'
+              fi
+            fi
+            if [[ -n $ARTIFACT_URL ]]; then
+              printf '\n[Download logs and reports](%s)\n\n' "$ARTIFACT_URL"
+              if [[ $SUITE == contracts && -f out/contracts-report.md ]]; then
+                printf 'Extract the archive and open `contracts-report.html` for the full contract report.\n\n'
+              fi
+            else
+              printf '\nReport artifact unavailable; see the workflow logs.\n\n'
+            fi
+            if [[ -f out/metadata.txt ]]; then
+              printf '<details><summary>Build metadata</summary>\n\n'
+              sed 's/^/    /' out/metadata.txt
+              printf '\n</details>\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

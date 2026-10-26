@@ -107,6 +107,35 @@ def link(path, label, output):
     return '<a href="' + escape(href, quote=True) + '">' + escape(label) + '</a>'
 
 
+def markdown_text(value):
+    """Keep result text literal inside Markdown tables and paragraphs."""
+    text = escape(" ".join(str(value).splitlines()), quote=False)
+    for character in ("\\", "`", "*", "_", "[", "]", "|"):
+        text = text.replace(character, "\\" + character)
+    return text
+
+
+def render_markdown(rows, exit_status):
+    lines = ["## " + headline(rows), ""]
+    if not rows:
+        lines.extend(("No contract cases were selected.", ""))
+    if exit_status and all(row["result"]["status"] == "PASS" for row in rows):
+        lines.extend((f"**Suite command failed with exit code {exit_status}.**", ""))
+    icons = {"PASS": "✅", "FAIL": "❌", "ERROR": "❌", "SKIP": "⏭️", "INCONCLUSIVE": "⚠️"}
+    lines.extend(("| Case | Result | Replay input |", "| --- | --- | --- |"))
+    for row in rows:
+        status = row["result"]["status"]
+        replay_input = row["observations"].get("optimization", {}).get("replay_input", "Not reached")
+        lines.append(f"| {markdown_text(row['case'])} | {icons.get(status, '⚠️')} {markdown_text(status)} | {markdown_text(replay_input)} |")
+    for row in rows:
+        details = failure_details(row)
+        if details:
+            lines.extend(("", "### " + markdown_text(row["case"]), ""))
+            lines.extend("- " + markdown_text(detail) for detail in details)
+    lines.extend(("", "Chameleon provides structural observations; GPU data correctness is not checked in these runs.", ""))
+    return "\n".join(lines)
+
+
 def render(rows, runs, output, exit_status):
     metadata = (runs / "metadata.txt").read_text() if (runs / "metadata.txt").is_file() else ""
     header = "<h1>" + escape(headline(rows)) + "</h1>"
@@ -200,6 +229,9 @@ def main():
     (runs / "report.html").write_text(render(rows, runs, runs / "report.html", args.exit_status))
     output.with_suffix(".txt").write_text(text)
     (runs / "summary.txt").write_text(text)
+    markdown = render_markdown(rows, args.exit_status)
+    output.with_suffix(".md").write_text(markdown)
+    (runs / "summary.md").write_text(markdown)
     print("\n" + text, flush=True)
 
 

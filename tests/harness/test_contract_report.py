@@ -93,6 +93,31 @@ class ContractReport(unittest.TestCase):
         self.assertEqual(contract_report.failure_details({"result": self.result}), [
             "replay/readback-buffer: HOST_VISIBLE + HOST_CACHED (type 1) → expected HOST_VISIBLE + HOST_CACHED (type 3)"])
 
+    def test_markdown_preserves_failures_missing_results_and_replay_input(self):
+        summary = contract_report.render_markdown(contract_report.collect(self.runs), 1)
+        self.assertIn("## Contract tests: 0 passed, 1 failed, 1 error", summary)
+        self.assertIn("| memory/combined | ❌ FAIL | input.gfxr |", summary)
+        self.assertIn("| memory/missing | ❌ ERROR | Not reached |", summary)
+        self.assertIn("- replay/readback-buffer: HOST\\_VISIBLE + HOST\\_CACHED → expected", summary)
+        self.assertIn("No complete case result", summary)
+        self.assertNotIn("type 1", summary)
+
+    def test_markdown_keeps_result_text_literal(self):
+        rows = contract_report.collect(self.runs)
+        rows[0]["case"] = "memory/[link](url)|<script>\nextra"
+        rows[0]["result"]["error"] = "**failure** `code`"
+        summary = contract_report.render_markdown(rows, 1)
+        self.assertIn(r"memory/\[link\](url)\|&lt;script&gt; extra", summary)
+        self.assertIn(r"\*\*failure\*\* \`code\`", summary)
+
+    def test_markdown_does_not_hide_failure_after_passing_cases(self):
+        rows = contract_report.collect(self.runs)[:1]
+        rows[0]["result"] = {"status": "PASS", "checks": []}
+        summary = contract_report.render_markdown(rows, 2)
+        self.assertIn("1 passed, 0 failed", summary)
+        self.assertIn("Suite command failed with exit code 2", summary)
+        self.assertIn("✅ PASS", summary)
+
 
 if __name__ == "__main__":
     unittest.main()
