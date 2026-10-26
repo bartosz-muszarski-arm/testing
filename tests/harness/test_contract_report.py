@@ -32,7 +32,8 @@ class ContractReport(unittest.TestCase):
         (self.runs / "cases.txt").write_text("memory/combined.yaml\nmemory/missing.yaml\n")
         self.observed = {
             "case": "memory/combined", "description": '<script>alert("unsafe")</script>',
-            "optimization": {"status": "not_needed", "replay_input": "input.gfxr", "reason": "No changes"},
+            "optimization": {"status": "completed_without_output", "replay_input": "input.gfxr",
+                             "reason": "Optimizer exited successfully without creating an output trace; replaying the original capture."},
             "stages": {"capture": {"objects": {"readback-buffer": [{"memory_type_index": 1,
                 "properties": ["HOST_VISIBLE", "HOST_CACHED"]}]}},
                        "replay": {"objects": {"readback-buffer": [{"memory_type_index": 1,
@@ -57,7 +58,8 @@ class ContractReport(unittest.TestCase):
         self.assertIn("HOST_VISIBLE + HOST_CACHED", page)
         self.assertIn("HOST_VISIBLE + HOST_COHERENT + HOST_CACHED", page)
         self.assertNotIn("type 3", page)
-        self.assertIn("not_needed", page)
+        self.assertIn("completed_without_output", page)
+        self.assertIn("replaying the original capture", page)
         self.assertIn("input.gfxr", page)
 
     def test_artifact_links_resolve_from_both_latest_and_archived_reports(self):

@@ -322,18 +322,18 @@ def run_case(args):
             else:
                 execute([optimize, out / "input.gfxr", out / "optimized.gfxr"], out, "optimize", env)
                 optimized = out / "optimized.gfxr"
-                no_change = "No unused resources detected. A new file will not be created."
                 if optimized.is_file() and optimized.stat().st_size:
                     replay_input = optimized
                     report["optimization"] = {"status": "output_created", "replay_input": optimized.name}
                     report["inputs"]["optimized_trace"] = identity(optimized)
-                elif not optimized.exists() and no_change in (out / "optimize.log").read_text():
+                elif not optimized.exists():
                     replay_input = out / "input.gfxr"
-                    report["optimization"] = {"status": "not_needed", "reason": no_change,
+                    report["optimization"] = {"status": "completed_without_output",
+                                              "reason": "Optimizer exited successfully without creating an output trace; replaying the original capture.",
                                               "replay_input": replay_input.name}
-                    print("Optimization not needed; replaying original capture:", replay_input, flush=True)
+                    print("Optimizer completed without output; replaying original capture:", replay_input, flush=True)
                 else:
-                    raise ValueError("optimization produced no trace")
+                    raise ValueError("optimization produced an empty or invalid output trace")
                 report["optimization"]["log"] = "optimize.log"
                 report["inputs"]["captured_trace"] = identity(out / "input.gfxr")
                 report["inputs"]["replay_trace"] = identity(replay_input)

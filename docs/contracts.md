@@ -27,11 +27,13 @@ before compilation. All cases use the same upload/readback/image workload.
 Every case runs capture → optimize → replay. The runner invokes
 `gfxrecon-optimize input.gfxr optimized.gfxr` from the selected tool build with
 its default optimizations. Replay consumes `optimized.gfxr` when produced. If the
-optimizer succeeds and explicitly reports that no unused resources were found
-and no output will be created, replay consumes the original `input.gfxr` instead.
-The report records this as `optimization.status: not_needed`, with the reason
-and actual replay input. Optimizer failures, empty output, and unexplained
-missing output stop the run. Optimization needs no case-specific YAML configuration.
+optimizer exits successfully without creating an output file, replay consumes
+the original `input.gfxr` instead. This decision does not depend on log wording.
+The report records this as `optimization.status: completed_without_output`, with
+the reason, optimizer log, and actual replay input. This status describes the
+observed outcome; it does not assert that no optimization was needed. Nonzero
+optimizer exits and empty or invalid output files stop the run.
+Optimization needs no case-specific YAML configuration.
 
 `expect` lists the exact properties of the expected replay memory type. Property
 order does not matter; additional or missing flags fail the contract. For example,
@@ -214,7 +216,7 @@ All memory-selection cases cover buffer/image creation, memory requirements,
 allocation, binding, debug names, host mapping, readback invalidation, image layout
 transitions, transfer commands, queue submission, and fence completion. They
 exercise GFXR capture, optimization, and replay with `--memory-translation rebind`,
-using the original trace when the optimizer explicitly reports no changes.
+using the original trace when the optimizer exits successfully without creating output.
 The `split-host-visible-types` case expects coherent host-visible memory for
 upload, cached host-visible memory for readback, and device-local memory for the
 optimal image. A replay implementation can fail a policy expectation while
