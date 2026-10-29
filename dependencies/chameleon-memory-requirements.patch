@@ -1,0 +1,85 @@
+--- a/src/chameleon/vulkan.cpp
++++ b/src/chameleon/vulkan.cpp
+@@ -2029,6 +2029,21 @@
+ 	return VK_SUCCESS;
+ }
+ 
++// Basic Vulkan eligibility rules shared by existing-resource and maintenance4 queries.
++static uint32_t compatible_memory_type_bits(cVkDevice* dev, bool protected_resource, bool transient_image)
++{
++	uint32_t bits = 0;
++	const auto& properties = dev->physicalDevice->memoryProperties;
++	for (uint32_t i = 0; i < properties.memoryTypeCount; ++i)
++	{
++		const VkMemoryPropertyFlags flags = properties.memoryTypes[i].propertyFlags;
++		if (bool(flags & VK_MEMORY_PROPERTY_PROTECTED_BIT) != protected_resource) continue;
++		if ((flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) && !transient_image) continue;
++		bits |= 1u << i;
++	}
++	return bits;
++}
++
+ static void internalGetBufferMemoryRequirements(
+     VkDevice                                    device,
+     VkBuffer                                    buffer,
+@@ -2038,7 +2053,7 @@
+ 	cVkDevice* dev = device_cast(device);
+ 	cVkBuffer* b = buffer_cast(buffer);
+ 	pMemoryRequirements->size = b->size;
+-	pMemoryRequirements->memoryTypeBits = dev->memoryTypeBits; // supports every memory type for now
++	pMemoryRequirements->memoryTypeBits = compatible_memory_type_bits(dev, b->flags & VK_BUFFER_CREATE_PROTECTED_BIT, false);
+ 	pMemoryRequirements->alignment = sizeof(void*);
+ 	if (pExtension)
+ 	{
+@@ -2071,7 +2086,8 @@
+ {
+ 	cVkDevice* dev = device_cast(device);
+ 	cVkImage* cimage = image_cast(image);
+-	pMemoryRequirements->memoryTypeBits = dev->memoryTypeBits; // supports everything
++	pMemoryRequirements->memoryTypeBits = compatible_memory_type_bits(dev, cimage->flags & VK_IMAGE_CREATE_PROTECTED_BIT,
++		cimage->usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
+ 	pMemoryRequirements->alignment = sizeof(void*);
+ 	pMemoryRequirements->size = cimage->size;
+ 	if (pExtension)
+@@ -5907,7 +5923,8 @@
+ 	ENTRY(vkGetDeviceBufferMemoryRequirementsKHR);
+ 	cVkDevice* dev = device_cast(device);
+ 	pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
+-	pMemoryRequirements->memoryRequirements.memoryTypeBits = dev->memoryTypeBits; // supports every memory type for now
++	pMemoryRequirements->memoryRequirements.memoryTypeBits = compatible_memory_type_bits(dev,
++		pInfo->pCreateInfo->flags & VK_BUFFER_CREATE_PROTECTED_BIT, false);
+ 	pMemoryRequirements->memoryRequirements.alignment = sizeof(void*);
+ 	VkMemoryDedicatedRequirements* mdr = (VkMemoryDedicatedRequirements*)find_extension(pMemoryRequirements, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS);
+ 	if (mdr)
+@@ -5924,7 +5941,9 @@
+ {
+ 	ENTRY(vkGetDeviceImageMemoryRequirementsKHR);
+ 	cVkDevice* dev = device_cast(device);
+-	pMemoryRequirements->memoryRequirements.memoryTypeBits = dev->memoryTypeBits; // supports everything
++	pMemoryRequirements->memoryRequirements.memoryTypeBits = compatible_memory_type_bits(dev,
++		pInfo->pCreateInfo->flags & VK_IMAGE_CREATE_PROTECTED_BIT,
++		pInfo->pCreateInfo->usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
+ 	pMemoryRequirements->memoryRequirements.alignment = sizeof(void*);
+ 	pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->extent.width * pInfo->pCreateInfo->extent.height * pInfo->pCreateInfo->extent.depth * std::max(1u, pInfo->pCreateInfo->arrayLayers)
+ 		* std::max(1u, pInfo->pCreateInfo->mipLevels) * 4 * 4; // return worst case
+@@ -8818,7 +8837,8 @@
+ 	ENTRY(vkGetDeviceBufferMemoryRequirements);
+ 	cVkDevice* dev = device_cast(device);
+ 	pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
+-	pMemoryRequirements->memoryRequirements.memoryTypeBits = dev->memoryTypeBits; // supports every memory type for now
++	pMemoryRequirements->memoryRequirements.memoryTypeBits = compatible_memory_type_bits(dev,
++		pInfo->pCreateInfo->flags & VK_BUFFER_CREATE_PROTECTED_BIT, false);
+ 	pMemoryRequirements->memoryRequirements.alignment = sizeof(void*);
+ 	VkMemoryDedicatedRequirements* mdr = (VkMemoryDedicatedRequirements*)find_extension(pMemoryRequirements, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS);
+ 	if (mdr)
+@@ -8835,7 +8855,9 @@
+ {
+ 	ENTRY(vkGetDeviceImageMemoryRequirements);
+ 	cVkDevice* dev = device_cast(device);
+-	pMemoryRequirements->memoryRequirements.memoryTypeBits = dev->memoryTypeBits; // supports everything
++	pMemoryRequirements->memoryRequirements.memoryTypeBits = compatible_memory_type_bits(dev,
++		pInfo->pCreateInfo->flags & VK_IMAGE_CREATE_PROTECTED_BIT,
++		pInfo->pCreateInfo->usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
+ 	pMemoryRequirements->memoryRequirements.alignment = sizeof(void*);
+ 	pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->extent.width * pInfo->pCreateInfo->extent.height * pInfo->pCreateInfo->extent.depth * std::max(1u, pInfo->pCreateInfo->arrayLayers)
+ 		* std::max(1u, pInfo->pCreateInfo->mipLevels) * 4 * 4; // return worst case

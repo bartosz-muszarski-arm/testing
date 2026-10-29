@@ -30,6 +30,8 @@ fi
 git -C "$source_dir" submodule update --init --depth 1 \
     external/Vulkan-Headers external/SPIRV-Headers external/OpenCL-Headers external/OpenCL-Docs external/glm
 patches=("$harness_dir/dependencies/chameleon-memory-report.patch"
+         "$harness_dir/dependencies/chameleon-memory-requirements.patch"
+         "$harness_dir/dependencies/chameleon-profile-identity.patch"
          "$harness_dir/dependencies/chameleon-transfer-profile.patch")
 for patch in "${patches[@]}"; do
     if git -C "$source_dir" apply --check "$patch" 2>/dev/null; then

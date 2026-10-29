@@ -16,7 +16,7 @@ buffer-memory-selection/
 
 - `workload.cpp`: a small, standalone Vulkan program using generic debug names.
 - `<case-name>.yaml`: the purpose, base Chameleon profile, capture/replay memory
-  types, named observations, and required replay properties.
+  types and named observations with their resource roles.
 
 Name cases after their distinguishing condition, using lowercase words separated
 by hyphens. The case identity is `<group>/<case-name>`. The suite discovers
@@ -35,21 +35,26 @@ observed outcome; it does not assert that no optimization was needed. Nonzero
 optimizer exits and empty or invalid output files stop the run.
 Optimization needs no case-specific YAML configuration.
 
-`expect` lists the exact properties of the expected replay memory type. Property
-order does not matter; additional or missing flags fail the contract. For example,
-`[DEVICE_LOCAL]` requires local-only memory and rejects a host-visible local type. `observe` currently
-supports `memory-type`. Every name must identify exactly one bound object during
-each stage. Missing or ambiguous evidence is `INCONCLUSIVE`, not a pass. Wrong
-properties or an unexpected effective driver configuration are `FAIL`. A workload
-exit of 77 is a capability `SKIP`. Other compilation, capture, optimization,
-replay, or timeout failures are `ERROR`.
-Every non-PASS result makes the runner exit nonzero.
+`observe` names the resource and its assessment role: `upload-unflushed`,
+`readback`, or `optimal-image`. The upload role describes this workload's host
+writes without an explicit capture-side flush; use it only when that is true.
+The report compares observed capture and replay memory properties:
 
-The case definitions and terminal/HTML reports use property names. Raw
-observations retain the actual type indices. An expectation can still specify
-`{memory-type-index: 0}` for a test specifically about index identity; reporting
-expands it to properties and includes indices when equal flags would hide the
-mismatch. Top-level `expect` applies to replay and covers every observed object.
+- **OPTIMAL**: the selection meets the role's preference: coherent for this
+  upload, cached for readback, or device-local for an optimal image. This is a
+  heuristic, not a measured performance result.
+- **SUBOPTIMAL**: readback memory is not cached or the optimal image is not local.
+  These are performance concerns and do not fail the run.
+- **ISSUE**: a coherent, unflushed capture upload is rebound to noncoherent
+  memory. The replay needs a flush or equivalent; these observations do not prove
+  whether replay supplies one or whether the GPU output is incorrect.
+- **INCONCLUSIVE**: evidence is missing or ambiguous, or a readback is not
+  host-visible and the replay's data path is unknown.
+
+Wrong effective driver configuration is `FAIL`; a missing required feature is
+`SKIP`; a failed tool or workload is `ERROR`. These, `ISSUE`, and `INCONCLUSIVE`
+make the runner exit nonzero. Legacy `memory-type` observations can still use
+`expect` for explicit exact property or index assertions.
 
 Memory types are ordered as written. The runner creates one 1-GiB heap for
 device-local types and one for non-local types; types in either group share that
@@ -60,7 +65,10 @@ of `{size: <bytes>, flags: [...]}` and `memory-types` as a list of
 `{heap: <index>, properties: [...]}`. This preserves separate heaps with identical
 flags and does not deduplicate memory types. Heap flags currently support
 `DEVICE_LOCAL` or an empty list. Other device capabilities come from the base
-profile. Per-resource memory requirement overrides are not implemented yet.
+profile. Chameleon excludes lazy memory from buffers and non-transient images,
+and separates protected and unprotected resource memory types. These rules apply
+to existing-resource and maintenance4 requirement queries. Driver-specific
+per-resource memory requirement overrides are not implemented yet.
 
 ## Memory-selection cases
 
@@ -69,70 +77,22 @@ cached noncoherent host-visible, lazy, and protected types in that order for
 both capture and replay. All types carry DEVICE_LOCAL. The first three share
 an ordinary heap; protected memory uses a separate heap.
 
-The case lists only the ordered memory properties for capture and replay. The
-runner supplies the ordinary/protected heap split, with synthetic non-limiting
-capacities of 1 GiB ordinary and 128 MiB protected. It uses the
-adjacent `workload.cpp` and expects coherent host-visible device-local memory
-for `upload-buffer` (TRANSFER_SRC) and `optimal-image`, and cached noncoherent
-host-visible device-local memory for `readback-buffer` (TRANSFER_DST). Capture bindings remain in the observation report.
-There is no ordinary device-local-only type;
-the image stays on coherent host-visible device-local memory. Lazy and protected types are exposed but not allocated.
-The shared fixture writes a 1024-byte pattern to the coherent upload allocation
-without an explicit flush, submits a buffer-to-image copy followed by an
-image-to-buffer copy, waits for a fence, maps and invalidates readback memory,
-and reads every byte. Capture relies on the upload allocation's HOST_COHERENT
-property; replay must preserve the required visibility when restoring those
-writes. Readback invalidation remains necessary for noncoherent memory.
-Image layout transitions and a transfer-to-host barrier establish the required
-ordering and visibility. Dedicated allocations are mapped and maintained in
-full, avoiding noncoherent atom alignment issues with subranges.
+Each case lists ordered capture and replay properties and observes the same
+three resources. The shared fixture writes a 1024-byte pattern to coherent
+upload memory without an explicit flush, transfers it through an optimal image,
+and invalidates and reads the readback buffer. Case names identify the memory
+layout changes, including reordered types, a new local-only type, and changes
+to cache and coherence properties. The scenarios assess the selections using
+the role-specific rules above, rather than requiring an exact property list.
 
-By default, the workload compares the readback with the uploaded pattern and
-fails on a mismatch. Chameleon records the image-copy commands without executing
-them, so the contract runner explicitly passes `--no-verify`. That mode still
-performs all Vulkan operations and CPU reads; only data comparison is disabled.
-The command and the disabled verification are recorded in the run artifacts.
-A contract PASS therefore establishes memory selection, not transferred contents.
-Use an executing driver with the default workload mode to check the round trip.
-The synchronization follows the [Vulkan synchronization examples](https://docs.vulkan.org/guide/latest/synchronization_examples.html).
+Chameleon records image-copy commands without executing them, so the contract
+runner passes `--no-verify`: it checks structural observations, not transferred
+contents. Use an executing driver with the default workload mode to check the
+round trip. The synchronization follows the [Vulkan synchronization examples](https://docs.vulkan.org/guide/latest/synchronization_examples.html).
 
-`buffer-memory-selection/added-local-only-type` captures the same layout and
-replays with device-local-only, coherent, lazy, cached, and protected types in
-that order. It expects coherent upload memory, cached noncoherent readback
-memory, and local-only image memory. This tests resource-specific selection when a local-only choice
-becomes available and host-visible type indices change. The heap topology stays
-the same; the new type shares the ordinary device-local heap.
-
-`buffer-memory-selection/cached-before-coherent` retains the common capture
-layout and replays with local-only, cached, lazy, coherent, and protected types.
-Upload must select coherent memory, readback cached noncoherent memory, and
-the optimal image local-only memory.
-
-`buffer-memory-selection/combined-coherent-cached` uses the same order, but
-the coherent replay type is also cached. Upload and readback must prefer that
-combined type over cached-only memory; the image must select local-only memory.
-Together, these cases distinguish reordered memory types from changes to their
-cache and coherence properties. Chameleon runs observe selection and submitted
-transfers; they do not verify transfer results or effective hardware cache
-maintenance.
-
-`buffer-memory-selection/coherent-type-becomes-cached` captures local-only,
-coherent, lazy, cached, and protected types. Replay swaps the coherent and cached
-positions. Upload must move to the coherent replay type even though its captured
-index now refers to host-visible, bindable noncoherent memory. Readback must use
-cached noncoherent memory, and the image must stay on local-only memory.
-
-`buffer-memory-selection/cached-type-gains-coherence` uses the same capture
-layout, but replay type 3 is both coherent and cached. Upload and readback must
-select type 3, while the image stays on coherent host-visible device-local memory. Both cases use the same workload
-and capture upload writes without an explicit flush. They exercise one upload
-and submission; repeated reuse and effective hardware cache visibility require
-additional coverage.
-
-These expectations define the replay selection policy being tested. They are
-not universal Vulkan requirements or a claim that the preferred type is fastest
-on every device. Selection must also satisfy the resource's replay memory
-requirements and supported data path.
+These cases assess externally observed memory selections. They do not prescribe
+how a replayer chooses a type, prove a performance difference, or establish
+coverage for other resource types and allocation paths.
 
 ## Run
 
@@ -149,14 +109,18 @@ third consumes supplied tools and capture layer. Chameleon is built separately,
 only targeting its full ICD. Its source revision is pinned in
 `scripts/build-chameleon.sh`; `dependencies/chameleon-memory-report.patch` adds
 effective memory properties and named resource bindings to its existing JSON
-report. `dependencies/chameleon-transfer-profile.patch` supplies the RGBA8
+report. `dependencies/chameleon-memory-requirements.patch` applies the basic
+lazy/protected resource eligibility rules.
+`dependencies/chameleon-profile-identity.patch` supplies a stable synthetic device
+name and ID so equivalent-environment contracts have explicit device identity.
+`dependencies/chameleon-transfer-profile.patch` supplies the RGBA8
 sampled/transfer format capabilities missing from the synthetic core profile.
 GFXReconstruct needs no harness-specific changes.
 
-At the end of a suite run, the terminal prints the case outcomes and selection
-mismatches. Open `out/contracts-report.html` for the latest readable report:
+At the end of a suite run, the terminal prints the case outcomes and assessment
+reasons. Open `out/contracts-report.html` for the latest readable report:
 it shows the selected revision or tool identity, capture/replay memory choices,
-expectations, optimization decisions, and links to the raw evidence. A plain-text
+role-specific assessments, optimization decisions, and links to the raw evidence. A plain-text
 copy is saved at `out/contracts-report.txt`, with a Markdown summary at
 `out/contracts-report.md`. Each invocation also keeps its own
 `report.html`, `summary.txt`, `summary.md`, setup log, and case artifacts under a unique
@@ -165,7 +129,8 @@ including when setup fails before capture. Opening the report does not rerun
 validation or any tools.
 
 GitHub Actions displays the Markdown summary on the workflow run page, including
-case outcomes, property-based failure details, and the trace selected for replay.
+case outcomes, resource roles, capture/replay selections, assessment reasons,
+and the trace selected for replay.
 The summary links to the downloadable logs and reports artifact: extract it and
 open `contracts-report.html` to browse the full report and its linked evidence.
 Build metadata is available in a collapsible section. If the run fails before a
@@ -199,7 +164,7 @@ selected replay, and any optimized trace. Reports are kept separately:
 - `capture_0.json` and `replay_0.json`: raw Chameleon observations.
 - `observations.json`: normalized capture/replay environments and named resource
   bindings, saved before validation and without pass/fail judgments.
-- `result.json`: validation of those observations against the case expectations.
+- `result.json`: assessments and validation of those observations.
 
 The observations record that data comparison is disabled for the observation
 driver. The capture-layer manifest uses an absolute library path; loader
@@ -217,11 +182,10 @@ allocation, binding, debug names, host mapping, readback invalidation, image lay
 transitions, transfer commands, queue submission, and fence completion. They
 exercise GFXR capture, optimization, and replay with `--memory-translation rebind`,
 using the original trace when the optimizer exits successfully without creating output.
-The `split-host-visible-types` case expects coherent host-visible memory for
-upload, cached host-visible memory for readback, and device-local memory for the
-optimal image. A replay implementation can fail a policy expectation while
-still issuing legal Vulkan calls; a passing process alone does not satisfy the
-contract.
+The `split-host-visible-types` case can flag a non-cached readback as
+suboptimal while accepting coherent or combined coherent/cached memory. Its
+unflushed upload must preserve visibility; a noncoherent replay selection is
+reported as an issue requiring investigation, not proof of corrupted output.
 
 Observations currently describe each object's final binding at instance teardown.
 The ICD retains destroyed objects and allocation identities, so collection does

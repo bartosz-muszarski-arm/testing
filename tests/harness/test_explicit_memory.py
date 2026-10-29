@@ -14,6 +14,10 @@ class ExplicitMemory(unittest.TestCase):
     def setUp(self):
         self.path = contract.ROOT / "tests/contracts/buffer-memory-selection/unchanged-layout.yaml"
         self.case = contract.load_case(self.path)
+        self.case["observe"] = {name: "memory-type" for name in self.case["observe"]}
+        self.case["expect"] = {"upload-buffer": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"],
+                               "readback-buffer": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_CACHED"],
+                               "optimal-image": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]}
         self.config = {
             "memory-heaps": [{"size": 1073741824, "flags": ["DEVICE_LOCAL"]},
                              {"size": 134217728, "flags": ["DEVICE_LOCAL"]}],

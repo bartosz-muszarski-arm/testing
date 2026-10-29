@@ -11,6 +11,8 @@ from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ROLE_LABELS = {"upload-unflushed": "Upload buffer (unflushed)",
+               "readback": "Readback buffer", "optimal-image": "Optimal image"}
 
 
 def read_json(path):
@@ -64,7 +66,7 @@ def selection(stage, name):
     return " + ".join(obj.get("properties", []))
 
 
-def failure_details(row):
+def failure_details(row, include_assessments=True):
     result = row["result"]
     details = [result[key] for key in ("error", "skip") if result.get(key)]
     for check in result["checks"]:
@@ -90,11 +92,45 @@ def failure_details(row):
         elif check.get("reason"):
             detail += ": " + check["reason"]
         details.append(detail)
+    if include_assessments:
+        for assessment in result.get("assessments", []):
+            if assessment["status"] != "OPTIMAL":
+                details.append(assessment["resource"] + ": " + assessment["status"] + " — " + assessment["reason"])
     return details
+
+
+def resource_rows(row):
+    """Build the same resource table for HTML and Markdown."""
+    stages = row["observations"].get("stages", {})
+    result = row["result"]
+    assessments = {item["resource"]: item for item in result.get("assessments", [])}
+    checks = {check["check"].split("/", 1)[1]: check for check in result["checks"]
+              if check["check"].startswith("replay/") and check["check"] != "replay/environment"}
+    names = sorted(set(stages.get("capture", {}).get("objects", {})) |
+                   set(stages.get("replay", {}).get("objects", {})) | set(checks) | set(assessments))
+    rows = []
+    for name in names:
+        assessment = assessments.get(name)
+        check = checks.get(name, {})
+        role = ROLE_LABELS.get(assessment["role"], assessment["role"]) if assessment else "—"
+        outcome = (assessment["status"] + ": " + assessment["reason"] if assessment else
+                   check.get("status", "INCONCLUSIVE") + ": expected " +
+                   expectation(check.get("expected"), check.get("expected_properties")))
+        rows.append((name, role, selection(stages.get("capture", {}), name),
+                     selection(stages.get("replay", {}), name), outcome))
+    return rows
 
 
 def headline(rows):
     counts = Counter(row["result"]["status"] for row in rows)
+    if any(row["result"].get("assessments") for row in rows):
+        issue_label = "issue" if counts["ISSUE"] == 1 else "issues"
+        parts = [f"{counts['OPTIMAL']} optimal", f"{counts['SUBOPTIMAL']} suboptimal", f"{counts['ISSUE']} {issue_label}"]
+        if counts["PASS"]:
+            parts.append(f"{counts['PASS']} passed")
+        parts.extend(f"{counts[s]} {label}" for s, label in (("FAIL", "failed"), ("ERROR", "errors"),
+                     ("INCONCLUSIVE", "inconclusive"), ("SKIP", "skipped")) if counts[s])
+        return "Contract tests: " + ", ".join(parts)
     parts = [f"{counts['PASS']} passed", f"{counts['FAIL']} failed"]
     parts.extend(f"{counts[status]} {label}" for status, label in
                  (("ERROR", "error" if counts["ERROR"] == 1 else "errors"),
@@ -119,18 +155,26 @@ def render_markdown(rows, exit_status):
     lines = ["## " + headline(rows), ""]
     if not rows:
         lines.extend(("No contract cases were selected.", ""))
-    if exit_status and all(row["result"]["status"] == "PASS" for row in rows):
+    if exit_status and all(row["result"]["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") for row in rows):
         lines.extend((f"**Suite command failed with exit code {exit_status}.**", ""))
-    icons = {"PASS": "✅", "FAIL": "❌", "ERROR": "❌", "SKIP": "⏭️", "INCONCLUSIVE": "⚠️"}
+    icons = {"PASS": "✅", "OPTIMAL": "✅", "SUBOPTIMAL": "⚠️", "ISSUE": "❗", "FAIL": "❌", "ERROR": "❌", "SKIP": "⏭️", "INCONCLUSIVE": "⚠️"}
     lines.extend(("| Case | Result | Replay input |", "| --- | --- | --- |"))
     for row in rows:
         status = row["result"]["status"]
         replay_input = row["observations"].get("optimization", {}).get("replay_input", "Not reached")
         lines.append(f"| {markdown_text(row['case'])} | {icons.get(status, '⚠️')} {markdown_text(status)} | {markdown_text(replay_input)} |")
     for row in rows:
-        details = failure_details(row)
+        details = failure_details(row, include_assessments=False)
+        assessments = row["result"].get("assessments", [])
+        if assessments:
+            lines.extend(("", "### " + markdown_text(row["case"]), "", "| Resource | Role | Capture | Replay | Assessment |", "| --- | --- | --- | --- | --- |"))
+            for cells in resource_rows(row):
+                lines.append("| " + " | ".join(markdown_text(cell) for cell in cells) + " |")
         if details:
-            lines.extend(("", "### " + markdown_text(row["case"]), ""))
+            if not assessments:
+                lines.extend(("", "### " + markdown_text(row["case"]), ""))
+            else:
+                lines.append("")
             lines.extend("- " + markdown_text(detail) for detail in details)
     lines.extend(("", "Chameleon provides structural observations; GPU data correctness is not checked in these runs.", ""))
     return "\n".join(lines)
@@ -148,7 +192,7 @@ def render(rows, runs, output, exit_status):
         header += "<p>Replay tool: " + escape(replay.get("path", "Not available")) + "</p>"
         if replay.get("sha256"):
             header += "<p>SHA-256: <code>" + escape(replay["sha256"]) + "</code></p>"
-    if exit_status and all(row["result"]["status"] == "PASS" for row in rows):
+    if exit_status and all(row["result"]["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") for row in rows):
         header += '<p class="ERROR">Suite command failed with exit code ' + str(exit_status) + '.</p>'
     header += "<p>Chameleon provides structural observations. Data comparison is disabled in these runs.</p>"
     if (runs / "setup.log").is_file():
@@ -167,22 +211,13 @@ def render(rows, runs, output, exit_status):
             body += "<p>Optimization: <strong>" + escape(optimization["status"]) + "</strong>. Replay input: <code>" + escape(replay_input) + "</code>.</p>"
             if optimization.get("reason"):
                 body += "<p>" + escape(optimization["reason"]) + "</p>"
-        details = failure_details(row)
+        details = failure_details(row, include_assessments=False)
         if details:
             body += "<ul>" + "".join("<li>" + escape(detail) + "</li>" for detail in details) + "</ul>"
-        stages = obs.get("stages", {})
-        replay_checks = {check["check"].split("/", 1)[1]: check for check in result["checks"]
-                         if check["check"].startswith("replay/") and check["check"] != "replay/environment"}
-        names = sorted(set(stages.get("capture", {}).get("objects", {})) |
-                       set(stages.get("replay", {}).get("objects", {})) | set(replay_checks))
-        if names:
-            body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Capture selection</th><th>Replay selection</th><th>Expected replay</th><th>Result</th></tr></thead><tbody>"
-            for name in names:
-                check = replay_checks.get(name, {})
-                cells = (name, selection(stages.get("capture", {}), name),
-                         selection(stages.get("replay", {}), name),
-                         expectation(check.get("expected"), check.get("expected_properties")),
-                         check.get("status", "INCONCLUSIVE"))
+        resources = resource_rows(row)
+        if resources:
+            body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Role</th><th>Capture selection</th><th>Replay selection</th><th>Assessment</th></tr></thead><tbody>"
+            for cells in resources:
                 body += "<tr>" + "".join("<td>" + escape(cell) + "</td>" for cell in cells) + "</tr>"
             body += "</tbody></table></div>"
         if directory:
@@ -204,7 +239,7 @@ body{font:16px/1.5 system-ui,sans-serif;color:#20252b;background:#fafbfc;max-wid
 h1{font-size:1.8rem}h2{font-size:1.2rem}a{color:#175ca4}pre,code{overflow-wrap:anywhere;white-space:pre-wrap;font-size:.85rem}
 table{border-collapse:collapse;width:100%;background:white}td,th{padding:10px 12px;text-align:left;border:1px solid #dbe0e5;vertical-align:top;overflow-wrap:anywhere}th{background:#eef1f5}
 section{margin:32px 0;padding:20px;background:white;border:1px solid #dbe0e5;border-radius:6px}.scroll{overflow-x:auto}.links{font-size:.85rem}
-.PASS{color:#17663a;font-weight:700}.FAIL,.ERROR{color:#a11d28;font-weight:700}.SKIP,.INCONCLUSIVE{color:#835600;font-weight:700}
+.PASS,.OPTIMAL{color:#17663a;font-weight:700}.ISSUE,.FAIL,.ERROR{color:#a11d28;font-weight:700}.SUBOPTIMAL,.SKIP,.INCONCLUSIVE{color:#835600;font-weight:700}
 </style><body>''' + header + "<table><thead><tr><th>Case</th><th>Result</th><th>Replay input</th></tr></thead><tbody>" + "".join(overview) + "</tbody></table>" + "".join(sections) + "</body></html>\n"
 
 

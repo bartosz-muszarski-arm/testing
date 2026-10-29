@@ -16,7 +16,7 @@ class ContractValidation(unittest.TestCase):
             layout = contract.memory_layout(self.case[stage]["memory-types"])
             bindings = []
             for uid, name in enumerate(self.case["observe"]):
-                index = 0 if stage == "capture" or name == "optimal-image" else (1 if name == "readback-buffer" else 2)
+                index = 0 if stage == "capture" or name == "optimal-image" else 2
                 bindings.append({"uid": uid, "name": name, "allocation_uid": 10 + uid,
                                  "memory_type_index": index, "memory_offset": 0,
                                  "kind": "image" if name == "optimal-image" else "buffer"})
@@ -24,16 +24,31 @@ class ContractValidation(unittest.TestCase):
             self.report["stages"][stage] = contract.normalize(raw, self.case["observe"])
 
     def test_selected_properties_match_expectations(self):
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "PASS")
+        self.assertEqual(contract.validate(self.case, self.report)["status"], "SUBOPTIMAL")
 
-    def test_local_only_image_rejects_additional_host_visible_properties(self):
+    def test_local_image_accepts_additional_host_visible_properties(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = [
             "DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "FAIL")
+        result = contract.validate(self.case, self.report)
+        self.assertEqual(next(a for a in result["assessments"] if a["resource"] == "optimal-image")["status"], "OPTIMAL")
 
     def test_host_coherence_is_required_not_just_visibility(self):
         self.report["stages"]["replay"]["objects"]["upload-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "FAIL")
+        self.assertEqual(contract.validate(self.case, self.report)["status"], "ISSUE")
+
+    def test_nonlocal_image_and_uncached_readback_are_suboptimal(self):
+        self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT"]
+        result = contract.validate(self.case, self.report)
+        self.assertEqual(result["status"], "SUBOPTIMAL")
+        self.assertEqual([a["status"] for a in result["assessments"]], ["OPTIMAL", "SUBOPTIMAL", "SUBOPTIMAL"])
+
+    def test_cached_and_coherent_readback_is_optimal(self):
+        self.report["stages"]["replay"]["objects"]["readback-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"]
+        self.assertEqual(contract.validate(self.case, self.report)["status"], "OPTIMAL")
+
+    def test_wrong_resource_kind_is_inconclusive(self):
+        self.report["stages"]["replay"]["objects"]["optimal-image"][0]["kind"] = "buffer"
+        self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_missing_object_is_inconclusive(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"] = []

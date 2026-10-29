@@ -44,8 +44,9 @@ def load_case(path):
     if not isinstance(case, dict):
         raise ValueError("description must be a mapping")
     allowed = {"description", "profile", "capture", "replay", "observe", "expect"}
-    if set(case) != allowed:
-        raise ValueError("description requires exactly " + ", ".join(sorted(allowed)))
+    required = allowed - {"expect"}
+    if not required <= set(case) or set(case) - allowed:
+        raise ValueError("description requires " + ", ".join(sorted(required)))
     if not all(isinstance(case[key], str) and case[key].strip() for key in ("description", "profile")):
         raise ValueError("description and profile must be strings")
     if Path(case["profile"]).name != case["profile"]:
@@ -63,12 +64,15 @@ def load_case(path):
             raise ValueError("arguments must be a list of replay arguments")
     if not isinstance(case["observe"], dict) or not case["observe"]:
         raise ValueError("observe must name at least one object")
-    if any(not isinstance(name, str) or not name or prop != "memory-type"
+    roles = {"memory-type", "upload-unflushed", "readback", "optimal-image"}
+    if any(not isinstance(name, str) or not name or not isinstance(prop, str) or prop not in roles
            for name, prop in case["observe"].items()):
-        raise ValueError("only named memory-type observations are supported")
-    if not isinstance(case["expect"], dict) or set(case["expect"]) != set(case["observe"]):
-        raise ValueError("expect must cover exactly the observed names")
-    for expectation in case["expect"].values():
+        raise ValueError("unsupported named memory observation")
+    legacy = {name for name, role in case["observe"].items() if role == "memory-type"}
+    expectations = case.get("expect", {})
+    if not isinstance(expectations, dict) or set(expectations) != legacy:
+        raise ValueError("expect must cover exactly the memory-type observations")
+    for expectation in expectations.values():
         if isinstance(expectation, list):
             check_properties(expectation)
         elif isinstance(expectation, dict) and set(expectation) == {"memory-type-index"}:
@@ -177,6 +181,32 @@ def normalize(raw, names):
     return result
 
 
+def assess_memory(role, capture, replay):
+    """Assess the observed binding against the declared workload role."""
+    kind = "image" if role == "optimal-image" else "buffer"
+    if capture.get("kind") != kind or replay.get("kind") != kind:
+        return "INCONCLUSIVE", "Observed resource type does not match the declared role."
+
+    captured = set(capture.get("properties", []))
+    selected = set(replay.get("properties", []))
+    if role == "optimal-image":
+        if "DEVICE_LOCAL" not in selected:
+            return "SUBOPTIMAL", "Optimal image is not device-local; performance may be affected."
+        return "OPTIMAL", "Optimal image uses device-local memory."
+    if role == "readback":
+        if "HOST_VISIBLE" not in selected:
+            return "INCONCLUSIVE", "Memory is not host-visible; the replay readback path is not verified."
+        if "HOST_CACHED" not in selected:
+            return "SUBOPTIMAL", "Readback memory is not host-cached; CPU reads may be slower."
+        return "OPTIMAL", "Readback memory is host-cached."
+    if "HOST_COHERENT" not in captured:
+        return "INCONCLUSIVE", "The unflushed upload was not captured on coherent memory."
+    if "HOST_COHERENT" not in selected:
+        return "ISSUE", ("Capture used coherent memory for an unflushed upload; "
+                         "noncoherent replay requires a flush or equivalent. Replay visibility is not verified.")
+    return "OPTIMAL", "The unflushed upload retains host-coherent memory."
+
+
 def validate(case, report):
     checks = []
     for stage in ("capture", "replay"):
@@ -188,7 +218,7 @@ def validate(case, report):
         topology_matches = all(actual.get(k) == v for k, v in expected.items())
         checks.append({"check": stage + "/environment",
                        "status": "PASS" if topology_matches else "FAIL"})
-        expectations = case["expect"] if stage == "replay" else {}
+        expectations = case.get("expect", {}) if stage == "replay" else {}
         for name in case["observe"]:
             objects = actual.get("objects", {}).get(name, [])
             expectation = expectations.get(name)
@@ -211,13 +241,28 @@ def validate(case, report):
                     check["expected_properties"] = [p for p, flag in FLAGS.items() if flags & flag]
                     check["observed_properties"] = objects[0].get("properties") if len(objects) == 1 else None
             checks.append(check)
-    statuses = {check["status"] for check in checks}
-    status = "FAIL" if "FAIL" in statuses else "INCONCLUSIVE" if "INCONCLUSIVE" in statuses else "PASS"
+    assessments = []
+    checks_by_name = {check["check"]: check for check in checks}
+    for name, role in case["observe"].items():
+        if role == "memory-type":
+            continue
+        if all(checks_by_name.get(stage + "/" + name, {}).get("status") == "PASS"
+               for stage in ("capture", "replay")):
+            capture = report["stages"]["capture"]["objects"][name][0]
+            replay = report["stages"]["replay"]["objects"][name][0]
+            status, reason = assess_memory(role, capture, replay)
+        else:
+            status, reason = "INCONCLUSIVE", "Capture and replay bindings are required."
+        assessments.append({"resource": name, "role": role, "status": status, "reason": reason})
+    statuses = {check["status"] for check in checks} | {a["status"] for a in assessments}
+    status = next((s for s in ("FAIL", "ISSUE", "INCONCLUSIVE", "SUBOPTIMAL") if s in statuses),
+                  "OPTIMAL" if assessments else "PASS")
     if report.get("error"):
         status = "ERROR"
     elif report.get("skip") and status != "FAIL":
         status = "SKIP"
-    return {"status": status, "checks": checks, "error": report.get("error"), "skip": report.get("skip")}
+    return {"status": status, "checks": checks, "assessments": assessments,
+            "error": report.get("error"), "skip": report.get("skip")}
 
 
 def execute(command, out, label, env=None):
@@ -372,7 +417,7 @@ def run_case(args):
                   "expected:", check.get("expected"), "observed:", check.get("observed"))
     if report.get("error") or report.get("skip"):
         print(report.get("error") or report["skip"])
-    return 0 if result["status"] == "PASS" else 1
+    return 0 if result["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") else 1
 
 
 def main():
@@ -393,7 +438,7 @@ def main():
     description = args.description or args.report.parent / "description.yaml"
     result = validate(load_case(description), json.loads(args.report.read_text()))
     print(json.dumps(result, indent=2))
-    return 0 if result["status"] == "PASS" else 1
+    return 0 if result["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") else 1
 
 
 if __name__ == "__main__":

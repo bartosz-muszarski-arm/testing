@@ -1,4 +1,4 @@
-description: Move upload to the combined coherent-cached type when the captured coherent type index becomes noncoherent and the captured cached type gains coherence.
+description: Move coherent upload to the combined type while retaining cached readback memory when type properties change.
 profile: VulkanCore-1.4
 
 capture:
@@ -19,11 +19,6 @@ replay:
   arguments: [--memory-translation, rebind]
 
 observe:
-  upload-buffer: memory-type
-  readback-buffer: memory-type
-  optimal-image: memory-type
-
-expect:
-  upload-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT, HOST_CACHED]
-  readback-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT, HOST_CACHED]
-  optimal-image: [DEVICE_LOCAL]
+  upload-buffer: upload-unflushed
+  readback-buffer: readback
+  optimal-image: optimal-image

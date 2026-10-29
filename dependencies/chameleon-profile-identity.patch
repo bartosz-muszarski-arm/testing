@@ -1,0 +1,11 @@
+--- a/share/chameleon/devices/VulkanCore-1.4/gpu.json
++++ b/share/chameleon/devices/VulkanCore-1.4/gpu.json
+@@ -96,6 +96,8 @@
+             },
+             "properties": {
+                 "VkPhysicalDeviceProperties": {
++                    "deviceName": "Chameleon VulkanCore-1.4",
++                    "deviceID": 1,
+                     "limits": {
+                         "maxImageDimension1D": 8192,
+                         "maxImageDimension2D": 8192,

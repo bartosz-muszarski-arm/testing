@@ -18,11 +18,6 @@ replay:
   arguments: [--memory-translation, rebind]
 
 observe:
-  upload-buffer: memory-type
-  readback-buffer: memory-type
-  optimal-image: memory-type
-
-expect:
-  upload-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT]
-  readback-buffer: [DEVICE_LOCAL, HOST_VISIBLE, HOST_CACHED]
-  optimal-image: [DEVICE_LOCAL]
+  upload-buffer: upload-unflushed
+  readback-buffer: readback
+  optimal-image: optimal-image

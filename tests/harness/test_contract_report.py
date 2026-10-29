@@ -120,6 +120,21 @@ class ContractReport(unittest.TestCase):
         self.assertIn("Suite command failed with exit code 2", summary)
         self.assertIn("✅ PASS", summary)
 
+    def test_assessments_show_both_selections_and_reason_in_both_reports(self):
+        rows = contract_report.collect(self.runs)[:1]
+        rows[0]["result"] = {"status": "SUBOPTIMAL", "checks": [], "assessments": [
+            {"resource": "readback-buffer", "role": "readback", "status": "SUBOPTIMAL",
+             "reason": "Readback memory is not host-cached; CPU reads may be slower."}]}
+        rows[0]["observations"]["stages"]["replay"]["objects"]["readback-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT"]
+        markdown = contract_report.render_markdown(rows, 0)
+        self.assertIn("Readback buffer", markdown)
+        self.assertIn("HOST\\_VISIBLE + HOST\\_CACHED", markdown)
+        self.assertIn("HOST\\_VISIBLE + HOST\\_COHERENT", markdown)
+        self.assertIn("SUBOPTIMAL: Readback memory is not host-cached", markdown)
+        html = contract_report.render(rows, self.runs, self.root / "report.html", 0)
+        self.assertIn("SUBOPTIMAL: Readback memory is not host-cached", html)
+        self.assertIn("HOST_VISIBLE + HOST_COHERENT", html)
+
 
 if __name__ == "__main__":
     unittest.main()
