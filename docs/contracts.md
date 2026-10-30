@@ -24,6 +24,11 @@ by hyphens. The case identity is `<group>/<case-name>`. The suite discovers
 workload entry in the case YAML. The workload source is copied into each run's artifacts
 before compilation. All cases use the same upload/readback/image workload.
 
+Cases with a constructed memory-type layout can include `tags: [synthetic]`.
+Reports list untagged cases first and synthetic cases separately. A missing or
+unreadable saved case definition appears as unclassified. Tags are optional and
+do not change the assessment or result.
+
 Every case runs capture → optimize → replay. The runner invokes
 `gfxrecon-optimize input.gfxr optimized.gfxr` from the selected tool build with
 its default optimizations. Replay consumes `optimized.gfxr` when produced. If the

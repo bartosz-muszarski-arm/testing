@@ -96,6 +96,24 @@ class ContractValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             contract.yaml.load("expect: {}\nexpect: {}\n", Loader=contract.CaseLoader)
 
+    def test_tags_are_optional_and_must_be_distinct_nonempty_strings(self):
+        for tags, valid in ((None, True), ([], True), (["synthetic"], True),
+                            (["future-tag"], True), ("synthetic", False),
+                            ([""], False), (["synthetic", "synthetic"], False), ([1], False)):
+            with self.subTest(tags=tags), tempfile.TemporaryDirectory() as directory:
+                case = copy.deepcopy(self.case)
+                if tags is None:
+                    case.pop("tags", None)
+                else:
+                    case["tags"] = tags
+                path = Path(directory) / "case.yaml"
+                path.write_text(contract.yaml.safe_dump(case))
+                if valid:
+                    contract.load_case(path)
+                else:
+                    with self.assertRaisesRegex(ValueError, "tags must be"):
+                        contract.load_case(path)
+
     def test_names_select_the_assessments(self):
         self.assertEqual(set(self.case["observe"].values()), {"memory-type"})
         self.assertEqual(contract.assessments_for(self.case), {

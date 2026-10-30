@@ -189,6 +189,28 @@ replay:
         self.assertNotIn("<script>", page)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", page)
 
+    def test_case_groups_are_ordered_and_unclassified_cases_remain_visible(self):
+        rows = contract_report.collect(self.runs)
+        normal_dir = self.root / "normal"
+        normal_dir.mkdir()
+        (normal_dir / "description.yaml").write_text("capture: {}\nreplay: {}\n")
+        synthetic_dir = self.root / "synthetic"
+        synthetic_dir.mkdir()
+        (synthetic_dir / "description.yaml").write_text("tags: [synthetic]\ncapture: {}\nreplay: {}\n")
+        rows[0]["case"] = "synthetic-case"
+        rows[0]["directory"] = synthetic_dir
+        normal = dict(rows[0], case="normal-case", directory=normal_dir)
+        rows.insert(1, normal)
+        for report in (contract_report.render_markdown(rows, 1),
+                       contract_report.render(rows, self.runs, self.root / "report.html", 1)):
+            self.assertLess(report.index("normal-case"), report.index("Synthetic cases"))
+            self.assertLess(report.index("Synthetic cases"), report.index("Unclassified cases"))
+            self.assertLess(report.index("normal-case"), report.index("synthetic-case"))
+            self.assertIn("memory/missing", report)
+            self.assertNotIn("basis:", report)
+            self.assertIn("tags: [synthetic]", report)
+            self.assertIn("No complete case result", report)
+
 
 if __name__ == "__main__":
     unittest.main()

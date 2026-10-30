@@ -1,4 +1,5 @@
 description: Preserve captured buffer coherence when caching and coherence split, and prefer local memory for the optimal image.
+tags: [synthetic]
 profile: VulkanCore-1.4
 
 capture:

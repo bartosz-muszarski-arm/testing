@@ -66,19 +66,38 @@ def selection(stage, name):
     return " + ".join(obj.get("properties", []))
 
 
-def case_settings(row):
-    """Show the settings saved with this run, not the current source file."""
+def case_definition(row):
+    """Read the definition saved with this run, not the current source file."""
     directory = row["directory"]
     if directory is None:
-        return None
+        return {}
     try:
         case = yaml.safe_load((directory / "description.yaml").read_text())
-        settings = {key: case[key] for key in ("profile", "capture", "replay") if key in case}
-        if "capture" not in settings or "replay" not in settings:
-            return None
-        return yaml.safe_dump(settings, sort_keys=False, default_flow_style=None, width=160).rstrip()
+        return case if isinstance(case, dict) else {}
     except (OSError, TypeError, yaml.YAMLError):
+        return {}
+
+
+def case_settings(row):
+    case = case_definition(row)
+    settings = {key: case[key] for key in ("tags", "profile", "capture", "replay") if key in case}
+    if "capture" not in settings or "replay" not in settings:
         return None
+    return yaml.safe_dump(settings, sort_keys=False, default_flow_style=None, width=160).rstrip()
+
+
+def case_groups(rows):
+    groups = {"Cases": [], "Synthetic cases": [], "Unclassified cases": []}
+    for row in rows:
+        case = case_definition(row)
+        tags = case.get("tags", [])
+        if not case or not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+            groups["Unclassified cases"].append(row)
+        elif "synthetic" in tags:
+            groups["Synthetic cases"].append(row)
+        else:
+            groups["Cases"].append(row)
+    return [(name, group) for name, group in groups.items() if group]
 
 
 def failure_details(row, include_assessments=True):
@@ -172,17 +191,17 @@ def render_markdown(rows, exit_status):
     if exit_status and all(row["result"]["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") for row in rows):
         lines.extend((f"**Suite command failed with exit code {exit_status}.**", ""))
     icons = {"PASS": "✅", "OPTIMAL": "✅", "SUBOPTIMAL": "⚠️", "ISSUE": "❗", "FAIL": "❌", "ERROR": "❌", "SKIP": "⏭️", "INCONCLUSIVE": "⚠️"}
-    lines.extend(("| Case | Result | Replay input |", "| --- | --- | --- |"))
-    for row in rows:
-        status = row["result"]["status"]
-        replay_input = row["observations"].get("optimization", {}).get("replay_input", "Not reached")
-        lines.append(f"| {markdown_text(row['case'])} | {icons.get(status, '⚠️')} {markdown_text(status)} | {markdown_text(replay_input)} |")
-    for row in rows:
-        details = failure_details(row, include_assessments=False)
-        assessments = row["result"].get("assessments", [])
-        settings = case_settings(row)
-        if settings or assessments or details:
-            lines.extend(("", "### " + markdown_text(row["case"]), ""))
+    for title, group in case_groups(rows):
+        lines.extend(("", "### " + title, "", "| Case | Result | Replay input |", "| --- | --- | --- |"))
+        for row in group:
+            status = row["result"]["status"]
+            replay_input = row["observations"].get("optimization", {}).get("replay_input", "Not reached")
+            lines.append(f"| {markdown_text(row['case'])} | {icons.get(status, '⚠️')} {markdown_text(status)} | {markdown_text(replay_input)} |")
+        for row in group:
+            details = failure_details(row, include_assessments=False)
+            assessments = row["result"].get("assessments", [])
+            settings = case_settings(row)
+            lines.extend(("", "#### " + markdown_text(row["case"]), ""))
             description = row["observations"].get("description")
             if description:
                 lines.extend((markdown_text(description), ""))
@@ -192,14 +211,14 @@ def render_markdown(rows, exit_status):
                 lines.append("")
             else:
                 lines.extend(("Case settings unavailable.", ""))
-        if assessments:
-            lines.extend(("| Resource | Capture | Replay | Assessment |", "| --- | --- | --- | --- |"))
-            for cells in resource_rows(row):
-                lines.append("| " + " | ".join(markdown_text(cell) for cell in cells) + " |")
-        if details:
             if assessments:
-                lines.append("")
-            lines.extend("- " + markdown_text(detail) for detail in details)
+                lines.extend(("| Resource | Capture | Replay | Assessment |", "| --- | --- | --- | --- |"))
+                for cells in resource_rows(row):
+                    lines.append("| " + " | ".join(markdown_text(cell) for cell in cells) + " |")
+            if details:
+                if assessments:
+                    lines.append("")
+                lines.extend("- " + markdown_text(detail) for detail in details)
     lines.extend(("", "Chameleon provides structural observations; GPU data correctness is not checked in these runs.", ""))
     return "\n".join(lines)
 
@@ -222,45 +241,50 @@ def render(rows, runs, output, exit_status):
     if (runs / "setup.log").is_file():
         header += "<p>" + link(runs / "setup.log", "Suite setup log", output) + "</p>"
     overview, sections = [], []
-    for index, row in enumerate(rows):
-        case, result, obs, directory = row["case"], row["result"], row["observations"], row["directory"]
-        status = result["status"]
-        optimization = obs.get("optimization", {})
-        replay_input = optimization.get("replay_input", "Not reached")
-        overview.append(f'<tr><td><a href="#case-{index}">{escape(case)}</a></td>'
-                        f'<td class="{escape(status)}">{escape(status)}</td><td>{escape(replay_input)}</td></tr>')
-        body = f'<section id="case-{index}"><h2>{escape(case)} <span class="{escape(status)}">{escape(status)}</span></h2>'
-        body += "<p>" + escape(obs.get("description", "")) + "</p>"
-        settings = case_settings(row)
-        if settings:
-            body += "<h3>Case settings</h3><pre>" + escape(settings) + "</pre>"
-        else:
-            body += "<p>Case settings unavailable.</p>"
-        if optimization:
-            body += "<p>Optimization: <strong>" + escape(optimization["status"]) + "</strong>. Replay input: <code>" + escape(replay_input) + "</code>.</p>"
-            if optimization.get("reason"):
-                body += "<p>" + escape(optimization["reason"]) + "</p>"
-        details = failure_details(row, include_assessments=False)
-        if details:
-            body += "<ul>" + "".join("<li>" + escape(detail) + "</li>" for detail in details) + "</ul>"
-        resources = resource_rows(row)
-        if resources:
-            body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Capture selection</th><th>Replay selection</th><th>Assessment</th></tr></thead><tbody>"
-            for cells in resources:
-                body += "<tr>" + "".join("<td>" + escape(cell) + "</td>" for cell in cells) + "</tr>"
-            body += "</tbody></table></div>"
-        if directory:
-            artifacts = [("observations.json", "Observed results"), ("result.json", "Validation"),
-                         ("description.yaml", "Case definition"), ("workload.cpp", "Workload"),
-                         ("commands.jsonl", "Commands"), ("compile.log", "Compile log"),
-                         ("capture.log", "Capture log"), ("optimize.log", "Optimizer log"),
-                         ("replay.log", "Replay log"), ("input.gfxr", "Original trace"),
-                         ("optimized.gfxr", "Optimized trace")]
-            artifacts += [(p.name, "Raw " + p.name) for stage in ("capture", "replay")
-                          for p in sorted(directory.glob(stage + "_*.json"))]
-            body += "<p class=links>" + " · ".join(link(directory / path, label, output)
-                       for path, label in artifacts if (directory / path).is_file()) + "</p>"
-        sections.append(body + "</section>")
+    index = 0
+    for title, group in case_groups(rows):
+        overview.append('<tr><th colspan="3">' + escape(title) + '</th></tr>')
+        sections.append('<h2>' + escape(title) + '</h2>')
+        for row in group:
+            case, result, obs, directory = row["case"], row["result"], row["observations"], row["directory"]
+            status = result["status"]
+            optimization = obs.get("optimization", {})
+            replay_input = optimization.get("replay_input", "Not reached")
+            overview.append(f'<tr><td><a href="#case-{index}">{escape(case)}</a></td>'
+                            f'<td class="{escape(status)}">{escape(status)}</td><td>{escape(replay_input)}</td></tr>')
+            body = f'<section id="case-{index}"><h2>{escape(case)} <span class="{escape(status)}">{escape(status)}</span></h2>'
+            body += "<p>" + escape(obs.get("description", "")) + "</p>"
+            settings = case_settings(row)
+            if settings:
+                body += "<h3>Case settings</h3><pre>" + escape(settings) + "</pre>"
+            else:
+                body += "<p>Case settings unavailable.</p>"
+            if optimization:
+                body += "<p>Optimization: <strong>" + escape(optimization["status"]) + "</strong>. Replay input: <code>" + escape(replay_input) + "</code>.</p>"
+                if optimization.get("reason"):
+                    body += "<p>" + escape(optimization["reason"]) + "</p>"
+            details = failure_details(row, include_assessments=False)
+            if details:
+                body += "<ul>" + "".join("<li>" + escape(detail) + "</li>" for detail in details) + "</ul>"
+            resources = resource_rows(row)
+            if resources:
+                body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Capture selection</th><th>Replay selection</th><th>Assessment</th></tr></thead><tbody>"
+                for cells in resources:
+                    body += "<tr>" + "".join("<td>" + escape(cell) + "</td>" for cell in cells) + "</tr>"
+                body += "</tbody></table></div>"
+            if directory:
+                artifacts = [("observations.json", "Observed results"), ("result.json", "Validation"),
+                             ("description.yaml", "Case definition"), ("workload.cpp", "Workload"),
+                             ("commands.jsonl", "Commands"), ("compile.log", "Compile log"),
+                             ("capture.log", "Capture log"), ("optimize.log", "Optimizer log"),
+                             ("replay.log", "Replay log"), ("input.gfxr", "Original trace"),
+                             ("optimized.gfxr", "Optimized trace")]
+                artifacts += [(p.name, "Raw " + p.name) for stage in ("capture", "replay")
+                              for p in sorted(directory.glob(stage + "_*.json"))]
+                body += "<p class=links>" + " · ".join(link(directory / path, label, output)
+                           for path, label in artifacts if (directory / path).is_file()) + "</p>"
+            sections.append(body + "</section>")
+            index += 1
     return '''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Contract test report</title>
 <style>

@@ -43,14 +43,18 @@ def load_case(path):
     case = yaml.load(path.read_text(), Loader=CaseLoader)
     if not isinstance(case, dict):
         raise ValueError("description must be a mapping")
-    allowed = {"description", "profile", "capture", "replay", "observe", "expect"}
-    required = allowed - {"expect"}
+    allowed = {"description", "profile", "capture", "replay", "observe", "expect", "tags"}
+    required = allowed - {"expect", "tags"}
     if not required <= set(case) or set(case) - allowed:
         raise ValueError("description requires " + ", ".join(sorted(required)))
     if not all(isinstance(case[key], str) and case[key].strip() for key in ("description", "profile")):
         raise ValueError("description and profile must be strings")
     if Path(case["profile"]).name != case["profile"]:
         raise ValueError("profile must be a profile name")
+    tags = case.get("tags", [])
+    if (not isinstance(tags, list) or any(not isinstance(tag, str) or not tag.strip() for tag in tags)
+            or len(set(tags)) != len(tags)):
+        raise ValueError("tags must be a list of distinct nonempty strings")
     for stage in ("capture", "replay"):
         config = case[stage]
         if not isinstance(config, dict) or set(config) - {"memory-types", "memory-heaps", "arguments"}:
