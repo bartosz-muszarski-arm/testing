@@ -68,10 +68,9 @@ def load_case(path):
     if any(not isinstance(name, str) or not name or not isinstance(prop, str) or prop not in roles
            for name, prop in case["observe"].items()):
         raise ValueError("unsupported named memory observation")
-    legacy = {name for name, role in case["observe"].items() if role == "memory-type"}
     expectations = case.get("expect", {})
-    if not isinstance(expectations, dict) or set(expectations) != legacy:
-        raise ValueError("expect must cover exactly the memory-type observations")
+    if not isinstance(expectations, dict) or set(expectations) - set(case["observe"]):
+        raise ValueError("expect must refer to observed names")
     for expectation in expectations.values():
         if isinstance(expectation, list):
             check_properties(expectation)
@@ -81,7 +80,25 @@ def load_case(path):
                 raise ValueError("expected memory-type-index is out of range")
         else:
             raise ValueError("expect a property list or {memory-type-index: N}")
+    assessments_for(case)
     return case
+
+
+def assessments_for(case):
+    """Choose assessments by resource name, retaining earlier case formats."""
+    names = {"upload-buffer-unflushed", "readback-buffer", "optimal-image"}
+    assessments = {}
+    for name, prop in case["observe"].items():
+        if name in case.get("expect", {}):
+            if prop != "memory-type":
+                raise ValueError("a resource cannot have both an assessment and an expectation")
+        elif prop != "memory-type":
+            assessments[name] = prop  # Earlier saved case definitions.
+        elif name in names:
+            assessments[name] = name
+        else:
+            raise ValueError("no assessment for observed resource: " + name)
+    return assessments
 
 
 def check_properties(properties):
@@ -193,7 +210,7 @@ def assess_memory(role, capture, replay):
         if "DEVICE_LOCAL" not in selected:
             return "SUBOPTIMAL", "Optimal image is not device-local; performance may be affected."
         return "OPTIMAL", "Optimal image uses device-local memory."
-    if role == "readback":
+    if role in ("readback", "readback-buffer"):
         if "HOST_VISIBLE" not in selected:
             return "INCONCLUSIVE", "Memory is not host-visible; the replay readback path is not verified."
         if "HOST_CACHED" not in selected:
@@ -243,9 +260,7 @@ def validate(case, report):
             checks.append(check)
     assessments = []
     checks_by_name = {check["check"]: check for check in checks}
-    for name, role in case["observe"].items():
-        if role == "memory-type":
-            continue
+    for name, role in assessments_for(case).items():
         if all(checks_by_name.get(stage + "/" + name, {}).get("status") == "PASS"
                for stage in ("capture", "replay")):
             capture = report["stages"]["capture"]["objects"][name][0]
@@ -436,7 +451,8 @@ def main():
     if args.command == "run":
         return run_case(args)
     description = args.description or args.report.parent / "description.yaml"
-    result = validate(load_case(description), json.loads(args.report.read_text()))
+    case = load_case(description)
+    result = validate(case, json.loads(args.report.read_text()))
     print(json.dumps(result, indent=2))
     return 0 if result["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") else 1
 

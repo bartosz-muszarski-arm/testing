@@ -2,6 +2,7 @@
 import copy
 import sys
 from pathlib import Path
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
@@ -10,7 +11,8 @@ import contract
 
 class ContractValidation(unittest.TestCase):
     def setUp(self):
-        self.case = contract.load_case(contract.ROOT / "tests/contracts/buffer-memory-selection/split-host-visible-types.yaml")
+        path = contract.ROOT / "tests/contracts/buffer-memory-selection/split-host-visible-types.yaml"
+        self.case = contract.load_case(path)
         self.report = {"stages": {}}
         for stage in ("capture", "replay"):
             layout = contract.memory_layout(self.case[stage]["memory-types"])
@@ -33,7 +35,7 @@ class ContractValidation(unittest.TestCase):
         self.assertEqual(next(a for a in result["assessments"] if a["resource"] == "optimal-image")["status"], "OPTIMAL")
 
     def test_host_coherence_is_required_not_just_visibility(self):
-        self.report["stages"]["replay"]["objects"]["upload-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
+        self.report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
         self.assertEqual(contract.validate(self.case, self.report)["status"], "ISSUE")
 
     def test_nonlocal_image_and_uncached_readback_are_suboptimal(self):
@@ -55,7 +57,7 @@ class ContractValidation(unittest.TestCase):
         self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_duplicate_names_are_not_resolved_by_creation_order(self):
-        objects = self.report["stages"]["replay"]["objects"]["upload-buffer"]
+        objects = self.report["stages"]["replay"]["objects"]["upload-buffer-unflushed"]
         objects.append(copy.deepcopy(objects[0]) | {"uid": 99})
         self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
 
@@ -81,6 +83,28 @@ class ContractValidation(unittest.TestCase):
     def test_duplicate_yaml_keys_are_rejected(self):
         with self.assertRaises(ValueError):
             contract.yaml.load("expect: {}\nexpect: {}\n", Loader=contract.CaseLoader)
+
+    def test_names_select_the_assessments(self):
+        self.assertEqual(set(self.case["observe"].values()), {"memory-type"})
+        self.assertEqual(contract.assessments_for(self.case), {
+            "upload-buffer-unflushed": "upload-buffer-unflushed",
+            "readback-buffer": "readback-buffer", "optimal-image": "optimal-image"})
+
+    def test_unknown_observation_requires_an_expectation(self):
+        case = copy.deepcopy(self.case)
+        case["observe"]["unknown-buffer"] = "memory-type"
+        with self.assertRaisesRegex(ValueError, "no assessment"):
+            contract.assessments_for(case)
+
+    def test_previous_inline_roles_remain_readable(self):
+        case = copy.deepcopy(self.case)
+        case["observe"] = {"upload-buffer": "upload-unflushed",
+                           "readback-buffer": "readback", "optimal-image": "optimal-image"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "description.yaml"
+            path.write_text(contract.yaml.safe_dump(case))
+            loaded = contract.load_case(path)
+            self.assertEqual(contract.assessments_for(loaded), case["observe"])
 
 
 if __name__ == "__main__":

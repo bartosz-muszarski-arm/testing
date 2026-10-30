@@ -15,7 +15,7 @@ class ExplicitMemory(unittest.TestCase):
         self.path = contract.ROOT / "tests/contracts/buffer-memory-selection/unchanged-layout.yaml"
         self.case = contract.load_case(self.path)
         self.case["observe"] = {name: "memory-type" for name in self.case["observe"]}
-        self.case["expect"] = {"upload-buffer": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"],
+        self.case["expect"] = {"upload-buffer-unflushed": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"],
                                "readback-buffer": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_CACHED"],
                                "optimal-image": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]}
         self.config = {
@@ -38,7 +38,7 @@ class ExplicitMemory(unittest.TestCase):
             bindings = [{"name": name, "uid": uid, "allocation_uid": uid + 10,
                          "memory_type_index": index, "memory_offset": 0}
                         for uid, (name, index) in enumerate(
-                            [("upload-buffer", 0), ("readback-buffer", 1), ("optimal-image", 0)])]
+                            [("upload-buffer-unflushed", 0), ("readback-buffer", 1), ("optimal-image", 0)])]
             raw = {"physical_devices": [layout | {"devices": [{"memory_bindings": bindings}]}]}
             stages[stage] = contract.normalize(raw, self.case["observe"])
         return {"stages": stages}
@@ -121,7 +121,7 @@ class ExplicitMemory(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
 
     def test_wrong_index_fails_despite_matching_properties(self):
-        self.case["expect"]["upload-buffer"] = {"memory-type-index": 0}
+        self.case["expect"]["upload-buffer-unflushed"] = {"memory-type-index": 0}
         report = self.observations()
         # Another type with identical properties must not replace captured index 0.
         for stage in ("capture", "replay"):
@@ -129,10 +129,10 @@ class ExplicitMemory(unittest.TestCase):
             config["memory-types"].append(copy.deepcopy(config["memory-types"][0]))
             report["stages"][stage]["memory_types"].append(
                 copy.deepcopy(report["stages"][stage]["memory_types"][0]))
-        report["stages"]["replay"]["objects"]["upload-buffer"][0]["memory_type_index"] = 4
+        report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["memory_type_index"] = 4
         result = contract.validate(self.case, report)
         self.assertEqual(result["status"], "FAIL")
-        self.assertEqual(next(c for c in result["checks"] if c["status"] == "FAIL")["check"], "replay/upload-buffer")
+        self.assertEqual(next(c for c in result["checks"] if c["status"] == "FAIL")["check"], "replay/upload-buffer-unflushed")
 
     def test_property_expectation_accepts_another_type_with_identical_flags(self):
         report = self.observations()
@@ -140,12 +140,12 @@ class ExplicitMemory(unittest.TestCase):
             self.case[stage]["memory-types"].append(copy.deepcopy(self.case[stage]["memory-types"][0]))
             report["stages"][stage]["memory_types"].append(
                 copy.deepcopy(report["stages"][stage]["memory_types"][0]))
-        report["stages"]["replay"]["objects"]["upload-buffer"][0]["memory_type_index"] = 4
+        report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["memory_type_index"] = 4
         self.assertEqual(contract.validate(self.case, report)["status"], "PASS")
 
     def test_capture_expectations_are_rejected(self):
         case = copy.deepcopy(self.case)
-        case["capture"]["expect"] = {"upload-buffer": {"memory-type-index": 0}}
+        case["capture"]["expect"] = {"upload-buffer-unflushed": {"memory-type-index": 0}}
         with self.assertRaises(ValueError):
             self.load_modified_case(case)
 
@@ -153,7 +153,7 @@ class ExplicitMemory(unittest.TestCase):
         for index in (-1, 4, True):
             with self.subTest(index=index):
                 case = copy.deepcopy(self.case)
-                case["expect"]["upload-buffer"] = {"memory-type-index": index}
+                case["expect"]["upload-buffer-unflushed"] = {"memory-type-index": index}
                 with self.assertRaises(ValueError):
                     self.load_modified_case(case)
 

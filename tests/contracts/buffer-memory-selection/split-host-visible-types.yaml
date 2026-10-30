@@ -13,6 +13,6 @@ replay:
   arguments: [--memory-translation, rebind]
 
 observe:
-  upload-buffer: upload-unflushed
-  readback-buffer: readback
-  optimal-image: optimal-image
+  upload-buffer-unflushed: memory-type
+  readback-buffer: memory-type
+  optimal-image: memory-type

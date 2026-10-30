@@ -12,7 +12,9 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLE_LABELS = {"upload-unflushed": "Upload buffer (unflushed)",
-               "readback": "Readback buffer", "optimal-image": "Optimal image"}
+               "upload-buffer-unflushed": "Upload buffer (unflushed)",
+               "readback": "Readback buffer", "readback-buffer": "Readback buffer",
+               "optimal-image": "Optimal image"}
 
 
 def read_json(path):

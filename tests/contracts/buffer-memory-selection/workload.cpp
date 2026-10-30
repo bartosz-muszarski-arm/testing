@@ -75,7 +75,7 @@ int main(int argc, char** argv)
 
     VkQueue queue;
     vkGetDeviceQueue(device, family, 0, &queue);
-    // upload-buffer
+    // upload-buffer-unflushed
     VkBufferCreateInfo upload_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     upload_info.size = data_size;
     upload_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -85,7 +85,7 @@ int main(int argc, char** argv)
     VkDebugUtilsObjectNameInfoEXT upload_name{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
     upload_name.objectType = VK_OBJECT_TYPE_BUFFER;
     upload_name.objectHandle = reinterpret_cast<uint64_t>(upload_buffer);
-    upload_name.pObjectName = "upload-buffer";
+    upload_name.pObjectName = "upload-buffer-unflushed";
     check(set_name(device, &upload_name));
     VkMemoryRequirements upload_requirements;
     vkGetBufferMemoryRequirements(device, upload_buffer, &upload_requirements);

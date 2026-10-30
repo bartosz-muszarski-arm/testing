@@ -16,12 +16,12 @@ buffer-memory-selection/
 
 - `workload.cpp`: a small, standalone Vulkan program using generic debug names.
 - `<case-name>.yaml`: the purpose, base Chameleon profile, capture/replay memory
-  types and named observations with their resource roles.
+  types and named observations.
 
 Name cases after their distinguishing condition, using lowercase words separated
 by hyphens. The case identity is `<group>/<case-name>`. The suite discovers
-`tests/contracts/*/*.yaml`; each case uses the adjacent `workload.cpp`, without
-a workload entry in YAML. The selected source is copied into each run's artifacts
+`tests/contracts/*/*.yaml`; each case uses the adjacent workload, without a
+workload entry in the case YAML. The workload source is copied into each run's artifacts
 before compilation. All cases use the same upload/readback/image workload.
 
 Every case runs capture → optimize → replay. The runner invokes
@@ -35,9 +35,10 @@ observed outcome; it does not assert that no optimization was needed. Nonzero
 optimizer exits and empty or invalid output files stop the run.
 Optimization needs no case-specific YAML configuration.
 
-`observe` names the resource and its assessment role: `upload-unflushed`,
-`readback`, or `optimal-image`. The upload role describes this workload's host
-writes without an explicit capture-side flush; use it only when that is true.
+`observe` names each resource and the property to record (`memory-type`).
+Assessments use the shared resource names `upload-buffer-unflushed`,
+`readback-buffer`, and `optimal-image`. Use the unflushed upload name only when
+the workload writes without an explicit capture-side flush.
 The report compares observed capture and replay memory properties:
 
 - **OPTIMAL**: the selection meets the role's preference: coherent for this
