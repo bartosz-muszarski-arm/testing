@@ -44,6 +44,17 @@ class ContractReport(unittest.TestCase):
         (self.run / "observations.json").write_text(json.dumps(self.observed))
         (self.run / "result.json").write_text(json.dumps(self.result))
         (self.run / "input.gfxr").write_bytes(b"capture")
+        (self.run / "description.yaml").write_text('''profile: VulkanCore-1.4
+capture:
+  memory-types:
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT]
+    - [DEVICE_LOCAL, HOST_VISIBLE, HOST_CACHED]
+replay:
+  memory-types:
+    - [DEVICE_LOCAL]
+    - [HOST_VISIBLE, HOST_COHERENT]
+  arguments: [--memory-translation, rebind]
+''')
 
     def test_missing_case_is_an_error_instead_of_disappearing(self):
         rows = contract_report.collect(self.runs)
@@ -127,13 +138,56 @@ class ContractReport(unittest.TestCase):
              "reason": "Readback memory is not host-cached; CPU reads may be slower."}]}
         rows[0]["observations"]["stages"]["replay"]["objects"]["readback-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT"]
         markdown = contract_report.render_markdown(rows, 0)
-        self.assertIn("Readback buffer", markdown)
+        self.assertIn("| Resource | Capture | Replay | Assessment |", markdown)
+        self.assertIn("readback-buffer", markdown)
+        self.assertNotIn("| Role |", markdown)
         self.assertIn("HOST\\_VISIBLE + HOST\\_CACHED", markdown)
         self.assertIn("HOST\\_VISIBLE + HOST\\_COHERENT", markdown)
         self.assertIn("SUBOPTIMAL: Readback memory is not host-cached", markdown)
         html = contract_report.render(rows, self.runs, self.root / "report.html", 0)
+        self.assertNotIn("<th>Role</th>", html)
         self.assertIn("SUBOPTIMAL: Readback memory is not host-cached", html)
         self.assertIn("HOST_VISIBLE + HOST_COHERENT", html)
+
+    def test_reports_show_saved_case_settings_before_results(self):
+        rows = contract_report.collect(self.runs)[:1]
+        rows[0]["result"] = {"status": "OPTIMAL", "checks": [], "assessments": [
+            {"resource": "readback-buffer", "role": "readback", "status": "OPTIMAL", "reason": "Cached."}]}
+        markdown = contract_report.render_markdown(rows, 0)
+        html = contract_report.render(rows, self.runs, self.root / "report.html", 0)
+        for report in (markdown, html):
+            self.assertIn("profile: VulkanCore-1.4", report)
+            self.assertIn("[DEVICE_LOCAL, HOST_VISIBLE, HOST_COHERENT]", report)
+            self.assertIn("[--memory-translation, rebind]", report)
+            self.assertLess(report.index("capture:"), report.index("replay:"))
+            self.assertLess(report.index("replay:"), report.index("Cached."))
+
+    def test_missing_or_invalid_settings_do_not_hide_results(self):
+        for content in (None, "capture: [unterminated"):
+            path = self.run / "description.yaml"
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_text(content)
+            rows = contract_report.collect(self.runs)
+            self.assertIn("Case settings unavailable.", contract_report.render_markdown(rows, 1))
+            self.assertIn("FAIL", contract_report.render(rows, self.runs, self.root / "report.html", 1))
+
+    def test_explicit_heaps_and_special_characters_are_preserved_safely(self):
+        (self.run / "description.yaml").write_text('''capture:
+  memory-heaps: [{size: 1024, flags: [DEVICE_LOCAL]}]
+  memory-types: [{heap: 0, properties: [DEVICE_LOCAL]}]
+replay:
+  memory-types: [[DEVICE_LOCAL]]
+  arguments: ["<script>alert(1)</script>"]
+''')
+        row = contract_report.collect(self.runs)[0]
+        settings = contract_report.case_settings(row)
+        self.assertIn("memory-heaps", settings)
+        self.assertIn("heap: 0", settings)
+        page = contract_report.render([row], self.runs, self.root / "report.html", 0)
+        self.assertNotIn("<script>", page)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", page)
 
 
 if __name__ == "__main__":

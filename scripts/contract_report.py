@@ -9,12 +9,10 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
-ROLE_LABELS = {"upload-unflushed": "Upload buffer (unflushed)",
-               "upload-buffer-unflushed": "Upload buffer (unflushed)",
-               "readback": "Readback buffer", "readback-buffer": "Readback buffer",
-               "optimal-image": "Optimal image"}
 
 
 def read_json(path):
@@ -68,6 +66,21 @@ def selection(stage, name):
     return " + ".join(obj.get("properties", []))
 
 
+def case_settings(row):
+    """Show the settings saved with this run, not the current source file."""
+    directory = row["directory"]
+    if directory is None:
+        return None
+    try:
+        case = yaml.safe_load((directory / "description.yaml").read_text())
+        settings = {key: case[key] for key in ("profile", "capture", "replay") if key in case}
+        if "capture" not in settings or "replay" not in settings:
+            return None
+        return yaml.safe_dump(settings, sort_keys=False, default_flow_style=None, width=160).rstrip()
+    except (OSError, TypeError, yaml.YAMLError):
+        return None
+
+
 def failure_details(row, include_assessments=True):
     result = row["result"]
     details = [result[key] for key in ("error", "skip") if result.get(key)]
@@ -114,11 +127,10 @@ def resource_rows(row):
     for name in names:
         assessment = assessments.get(name)
         check = checks.get(name, {})
-        role = ROLE_LABELS.get(assessment["role"], assessment["role"]) if assessment else "—"
         outcome = (assessment["status"] + ": " + assessment["reason"] if assessment else
                    check.get("status", "INCONCLUSIVE") + ": expected " +
                    expectation(check.get("expected"), check.get("expected_properties")))
-        rows.append((name, role, selection(stages.get("capture", {}), name),
+        rows.append((name, selection(stages.get("capture", {}), name),
                      selection(stages.get("replay", {}), name), outcome))
     return rows
 
@@ -168,14 +180,24 @@ def render_markdown(rows, exit_status):
     for row in rows:
         details = failure_details(row, include_assessments=False)
         assessments = row["result"].get("assessments", [])
+        settings = case_settings(row)
+        if settings or assessments or details:
+            lines.extend(("", "### " + markdown_text(row["case"]), ""))
+            description = row["observations"].get("description")
+            if description:
+                lines.extend((markdown_text(description), ""))
+            if settings:
+                lines.extend(("**Case settings**", ""))
+                lines.extend("    " + line for line in settings.splitlines())
+                lines.append("")
+            else:
+                lines.extend(("Case settings unavailable.", ""))
         if assessments:
-            lines.extend(("", "### " + markdown_text(row["case"]), "", "| Resource | Role | Capture | Replay | Assessment |", "| --- | --- | --- | --- | --- |"))
+            lines.extend(("| Resource | Capture | Replay | Assessment |", "| --- | --- | --- | --- |"))
             for cells in resource_rows(row):
                 lines.append("| " + " | ".join(markdown_text(cell) for cell in cells) + " |")
         if details:
-            if not assessments:
-                lines.extend(("", "### " + markdown_text(row["case"]), ""))
-            else:
+            if assessments:
                 lines.append("")
             lines.extend("- " + markdown_text(detail) for detail in details)
     lines.extend(("", "Chameleon provides structural observations; GPU data correctness is not checked in these runs.", ""))
@@ -209,6 +231,11 @@ def render(rows, runs, output, exit_status):
                         f'<td class="{escape(status)}">{escape(status)}</td><td>{escape(replay_input)}</td></tr>')
         body = f'<section id="case-{index}"><h2>{escape(case)} <span class="{escape(status)}">{escape(status)}</span></h2>'
         body += "<p>" + escape(obs.get("description", "")) + "</p>"
+        settings = case_settings(row)
+        if settings:
+            body += "<h3>Case settings</h3><pre>" + escape(settings) + "</pre>"
+        else:
+            body += "<p>Case settings unavailable.</p>"
         if optimization:
             body += "<p>Optimization: <strong>" + escape(optimization["status"]) + "</strong>. Replay input: <code>" + escape(replay_input) + "</code>.</p>"
             if optimization.get("reason"):
@@ -218,7 +245,7 @@ def render(rows, runs, output, exit_status):
             body += "<ul>" + "".join("<li>" + escape(detail) + "</li>" for detail in details) + "</ul>"
         resources = resource_rows(row)
         if resources:
-            body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Role</th><th>Capture selection</th><th>Replay selection</th><th>Assessment</th></tr></thead><tbody>"
+            body += "<div class=scroll><table><thead><tr><th>Resource</th><th>Capture selection</th><th>Replay selection</th><th>Assessment</th></tr></thead><tbody>"
             for cells in resources:
                 body += "<tr>" + "".join("<td>" + escape(cell) + "</td>" for cell in cells) + "</tr>"
             body += "</tbody></table></div>"

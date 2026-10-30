@@ -125,8 +125,8 @@ GFXReconstruct needs no harness-specific changes.
 
 At the end of a suite run, the terminal prints the case outcomes and assessment
 reasons. Open `out/contracts-report.html` for the latest readable report:
-it shows the selected revision or tool identity, capture/replay memory choices,
-role-specific assessments, optimization decisions, and links to the raw evidence. A plain-text
+it shows the selected revision or tool identity, saved case settings, capture/replay
+memory choices, role-specific assessments, optimization decisions, and links to the raw evidence. A plain-text
 copy is saved at `out/contracts-report.txt`, with a Markdown summary at
 `out/contracts-report.md`. Each invocation also keeps its own
 `report.html`, `summary.txt`, `summary.md`, setup log, and case artifacts under a unique
@@ -135,7 +135,7 @@ including when setup fails before capture. Opening the report does not rerun
 validation or any tools.
 
 GitHub Actions displays the Markdown summary on the workflow run page, including
-case outcomes, resource roles, capture/replay selections, assessment reasons,
+case outcomes, saved case settings, resources, capture/replay selections, assessment reasons,
 and the trace selected for replay.
 The summary links to the downloadable logs and reports artifact: extract it and
 open `contracts-report.html` to browse the full report and its linked evidence.
