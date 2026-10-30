@@ -57,6 +57,11 @@ Wrong effective driver configuration is `FAIL`; a missing required feature is
 make the runner exit nonzero. Legacy `memory-type` observations can still use
 `expect` for explicit exact property or index assertions.
 
+The runner records observations first, assesses the resource selections, then
+validates the environment, explicit expectations, and assessment outcomes. The
+assessment describes the selection; validation applies the suite's acceptance
+policy. Raw observations remain independent of either judgment.
+
 Memory types are ordered as written. The runner creates one 1-GiB heap for
 device-local types and one for non-local types; types in either group share that
 heap. Protected types use separate 128-MiB heaps. This default keeps memory-type

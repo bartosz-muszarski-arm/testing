@@ -224,7 +224,33 @@ def assess_memory(role, capture, replay):
     return "OPTIMAL", "The unflushed upload retains host-coherent memory."
 
 
-def validate(case, report):
+def bound_object(case, report, stage, name):
+    """Return a uniquely observed binding, or None when the evidence is incomplete."""
+    actual = report.get("stages", {}).get(stage) or {}
+    objects = actual.get("objects", {}).get(name, [])
+    if (len(objects) != 1 or "allocation_uid" not in objects[0] or
+            type(objects[0].get("memory_type_index")) is not int or
+            not 0 <= objects[0]["memory_type_index"] < len(case[stage]["memory-types"])):
+        return None
+    return objects[0]
+
+
+def assess(case, report):
+    """Interpret resource observations without checking the acceptance policy."""
+    assessments = []
+    for name, role in assessments_for(case).items():
+        capture = bound_object(case, report, "capture", name)
+        replay = bound_object(case, report, "replay", name)
+        if capture is None or replay is None:
+            status, reason = "INCONCLUSIVE", "Capture and replay bindings are required."
+        else:
+            status, reason = assess_memory(role, capture, replay)
+        assessments.append({"resource": name, "role": role, "status": status, "reason": reason})
+    return assessments
+
+
+def validate(case, report, assessments):
+    """Check environments and expectations, then apply the outcome policy."""
     checks = []
     for stage in ("capture", "replay"):
         actual = report.get("stages", {}).get(stage)
@@ -240,9 +266,7 @@ def validate(case, report):
             objects = actual.get("objects", {}).get(name, [])
             expectation = expectations.get(name)
             status, reason = "PASS", ""
-            if (len(objects) != 1 or "allocation_uid" not in objects[0] or
-                    type(objects[0].get("memory_type_index")) is not int or
-                    not 0 <= objects[0]["memory_type_index"] < len(expected["memory_types"])):
+            if bound_object(case, report, stage, name) is None:
                 status, reason = "INCONCLUSIVE", "expected one uniquely named, bound object"
             elif isinstance(expectation, list) and set(expectation) != set(objects[0]["properties"]):
                 status, reason = "FAIL", "memory properties do not match"
@@ -258,17 +282,6 @@ def validate(case, report):
                     check["expected_properties"] = [p for p, flag in FLAGS.items() if flags & flag]
                     check["observed_properties"] = objects[0].get("properties") if len(objects) == 1 else None
             checks.append(check)
-    assessments = []
-    checks_by_name = {check["check"]: check for check in checks}
-    for name, role in assessments_for(case).items():
-        if all(checks_by_name.get(stage + "/" + name, {}).get("status") == "PASS"
-               for stage in ("capture", "replay")):
-            capture = report["stages"]["capture"]["objects"][name][0]
-            replay = report["stages"]["replay"]["objects"][name][0]
-            status, reason = assess_memory(role, capture, replay)
-        else:
-            status, reason = "INCONCLUSIVE", "Capture and replay bindings are required."
-        assessments.append({"resource": name, "role": role, "status": status, "reason": reason})
     statuses = {check["status"] for check in checks} | {a["status"] for a in assessments}
     status = next((s for s in ("FAIL", "ISSUE", "INCONCLUSIVE", "SUBOPTIMAL") if s in statuses),
                   "OPTIMAL" if assessments else "PASS")
@@ -278,6 +291,10 @@ def validate(case, report):
         status = "SKIP"
     return {"status": status, "checks": checks, "assessments": assessments,
             "error": report.get("error"), "skip": report.get("skip")}
+
+
+def evaluate(case, report):
+    return validate(case, report, assess(case, report))
 
 
 def execute(command, out, label, env=None):
@@ -423,7 +440,7 @@ def run_case(args):
     except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError) as error:
         report["error"] = str(error)
     write_json(out / "observations.json", report)
-    result = validate(case, report)
+    result = evaluate(case, report)
     write_json(out / "result.json", result)
     print(result["status"], out / "result.json", flush=True)
     for check in result["checks"]:
@@ -452,7 +469,7 @@ def main():
         return run_case(args)
     description = args.description or args.report.parent / "description.yaml"
     case = load_case(description)
-    result = validate(case, json.loads(args.report.read_text()))
+    result = evaluate(case, json.loads(args.report.read_text()))
     print(json.dumps(result, indent=2))
     return 0 if result["status"] in ("PASS", "OPTIMAL", "SUBOPTIMAL") else 1
 

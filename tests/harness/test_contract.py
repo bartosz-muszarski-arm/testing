@@ -26,59 +26,71 @@ class ContractValidation(unittest.TestCase):
             self.report["stages"][stage] = contract.normalize(raw, self.case["observe"])
 
     def test_selected_properties_match_expectations(self):
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "SUBOPTIMAL")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "SUBOPTIMAL")
 
     def test_local_image_accepts_additional_host_visible_properties(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = [
             "DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]
-        result = contract.validate(self.case, self.report)
+        result = contract.evaluate(self.case, self.report)
         self.assertEqual(next(a for a in result["assessments"] if a["resource"] == "optimal-image")["status"], "OPTIMAL")
 
     def test_host_coherence_is_required_not_just_visibility(self):
         self.report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "ISSUE")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "ISSUE")
 
     def test_nonlocal_image_and_uncached_readback_are_suboptimal(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT"]
-        result = contract.validate(self.case, self.report)
+        result = contract.evaluate(self.case, self.report)
         self.assertEqual(result["status"], "SUBOPTIMAL")
         self.assertEqual([a["status"] for a in result["assessments"]], ["OPTIMAL", "SUBOPTIMAL", "SUBOPTIMAL"])
 
     def test_cached_and_coherent_readback_is_optimal(self):
         self.report["stages"]["replay"]["objects"]["readback-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"]
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "OPTIMAL")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "OPTIMAL")
 
     def test_wrong_resource_kind_is_inconclusive(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"][0]["kind"] = "buffer"
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_missing_object_is_inconclusive(self):
         self.report["stages"]["replay"]["objects"]["optimal-image"] = []
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_duplicate_names_are_not_resolved_by_creation_order(self):
         objects = self.report["stages"]["replay"]["objects"]["upload-buffer-unflushed"]
         objects.append(copy.deepcopy(objects[0]) | {"uid": 99})
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_unbound_named_object_is_inconclusive(self):
         del self.report["stages"]["replay"]["objects"]["readback-buffer"][0]["allocation_uid"]
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "INCONCLUSIVE")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "INCONCLUSIVE")
 
     def test_wrong_driver_environment_fails_even_with_matching_objects(self):
         self.report["stages"]["replay"]["memory_types"][0]["property_flags"] = 15
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "FAIL")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "FAIL")
+
+    def test_assessment_is_independent_of_environment_validation(self):
+        assessments = contract.assess(self.case, self.report)
+        self.report["stages"]["replay"]["memory_types"][0]["property_flags"] = 15
+        self.assertEqual(contract.assess(self.case, self.report), assessments)
+        self.assertEqual(contract.validate(self.case, self.report, assessments)["status"], "FAIL")
+
+    def test_validation_applies_policy_to_existing_assessments(self):
+        assessments = contract.assess(self.case, self.report)
+        self.assertEqual(contract.validate(self.case, self.report, assessments)["status"], "SUBOPTIMAL")
+        assessments[0] = assessments[0] | {"status": "ISSUE"}
+        self.assertEqual(contract.validate(self.case, self.report, assessments)["status"], "ISSUE")
 
     def test_successful_subprocess_is_not_sufficient(self):
-        self.assertEqual(contract.validate(self.case, {"stages": {}})["status"], "INCONCLUSIVE")
+        self.assertEqual(contract.evaluate(self.case, {"stages": {}})["status"], "INCONCLUSIVE")
 
     def test_subprocess_error_cannot_pass(self):
         self.report["error"] = "replay failed"
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "ERROR")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "ERROR")
 
     def test_capability_skip_is_not_a_pass(self):
         self.report["skip"] = "workload exited 77"
-        self.assertEqual(contract.validate(self.case, self.report)["status"], "SKIP")
+        self.assertEqual(contract.evaluate(self.case, self.report)["status"], "SKIP")
 
     def test_duplicate_yaml_keys_are_rejected(self):
         with self.assertRaises(ValueError):

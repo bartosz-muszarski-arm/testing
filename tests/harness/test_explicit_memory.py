@@ -117,7 +117,7 @@ class ExplicitMemory(unittest.TestCase):
             self.load_modified_case(case)
 
     def test_equivalent_platform_properties_pass(self):
-        result = contract.validate(self.case, self.observations())
+        result = contract.evaluate(self.case, self.observations())
         self.assertEqual(result["status"], "PASS")
 
     def test_wrong_index_fails_despite_matching_properties(self):
@@ -130,7 +130,7 @@ class ExplicitMemory(unittest.TestCase):
             report["stages"][stage]["memory_types"].append(
                 copy.deepcopy(report["stages"][stage]["memory_types"][0]))
         report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["memory_type_index"] = 4
-        result = contract.validate(self.case, report)
+        result = contract.evaluate(self.case, report)
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(next(c for c in result["checks"] if c["status"] == "FAIL")["check"], "replay/upload-buffer-unflushed")
 
@@ -141,7 +141,7 @@ class ExplicitMemory(unittest.TestCase):
             report["stages"][stage]["memory_types"].append(
                 copy.deepcopy(report["stages"][stage]["memory_types"][0]))
         report["stages"]["replay"]["objects"]["upload-buffer-unflushed"][0]["memory_type_index"] = 4
-        self.assertEqual(contract.validate(self.case, report)["status"], "PASS")
+        self.assertEqual(contract.evaluate(self.case, report)["status"], "PASS")
 
     def test_capture_expectations_are_rejected(self):
         case = copy.deepcopy(self.case)
