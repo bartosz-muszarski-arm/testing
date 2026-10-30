@@ -14,7 +14,8 @@ class ExplicitMemory(unittest.TestCase):
     def setUp(self):
         self.path = contract.ROOT / "tests/contracts/buffer-memory-selection/unchanged-layout.yaml"
         self.case = contract.load_case(self.path)
-        self.case["observe"] = {name: "memory-type" for name in self.case["observe"]}
+        self.case["observe"] = {name: "memory-type" for name in
+                                ("upload-buffer-unflushed", "readback-buffer", "optimal-image")}
         self.case["expect"] = {"upload-buffer-unflushed": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"],
                                "readback-buffer": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_CACHED"],
                                "optimal-image": ["DEVICE_LOCAL", "HOST_VISIBLE", "HOST_COHERENT"]}

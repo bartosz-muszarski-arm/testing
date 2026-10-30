@@ -90,7 +90,8 @@ def load_case(path):
 
 def assessments_for(case):
     """Choose assessments by resource name, retaining earlier case formats."""
-    names = {"upload-buffer-unflushed", "readback-buffer", "optimal-image"}
+    names = {"upload-buffer-unflushed", "upload-buffer-storage-unflushed",
+             "upload-buffer-vertex-unflushed", "readback-buffer", "optimal-image"}
     assessments = {}
     for name, prop in case["observe"].items():
         if name in case.get("expect", {}):

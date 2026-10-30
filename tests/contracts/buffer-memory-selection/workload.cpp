@@ -26,8 +26,14 @@ int main(int argc, char** argv)
         return 2;
     }
     constexpr unsigned width = 16, height = 16, data_size = width * height * 4;
-    unsigned char expected[data_size];
-    for (unsigned i = 0; i < data_size; ++i) expected[i] = static_cast<unsigned char>(i);
+    constexpr unsigned readback_size = 3 * data_size;
+    unsigned char expected[readback_size];
+    for (unsigned i = 0; i < data_size; ++i)
+    {
+        expected[i] = static_cast<unsigned char>(i);
+        expected[data_size + i] = static_cast<unsigned char>(i + 37);
+        expected[2 * data_size + i] = static_cast<unsigned char>(i + 74);
+    }
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     app.pApplicationName = "buffer memory selection";
     app.apiVersion = VK_API_VERSION_1_1;
@@ -101,9 +107,61 @@ int main(int argc, char** argv)
     check(vkAllocateMemory(device, &upload_allocation, nullptr, &upload_memory));
     check(vkBindBufferMemory(device, upload_buffer, upload_memory, 0));
 
+    // upload-buffer-storage-unflushed
+    VkBufferCreateInfo storage_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    storage_info.size = data_size;
+    storage_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    storage_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer storage_buffer;
+    check(vkCreateBuffer(device, &storage_info, nullptr, &storage_buffer));
+    VkDebugUtilsObjectNameInfoEXT storage_name{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
+    storage_name.objectType = VK_OBJECT_TYPE_BUFFER;
+    storage_name.objectHandle = reinterpret_cast<uint64_t>(storage_buffer);
+    storage_name.pObjectName = "upload-buffer-storage-unflushed";
+    check(set_name(device, &storage_name));
+    VkMemoryRequirements storage_requirements;
+    vkGetBufferMemoryRequirements(device, storage_buffer, &storage_requirements);
+    VkMemoryAllocateInfo storage_allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    storage_allocation.allocationSize = storage_requirements.size;
+    while (storage_allocation.memoryTypeIndex < properties.memoryTypeCount &&
+           (!(storage_requirements.memoryTypeBits & (1u << storage_allocation.memoryTypeIndex)) ||
+            (properties.memoryTypes[storage_allocation.memoryTypeIndex].propertyFlags & upload_required) != upload_required))
+        ++storage_allocation.memoryTypeIndex;
+    if (storage_allocation.memoryTypeIndex == properties.memoryTypeCount) return kExitSkip;
+    VkDeviceMemory storage_memory;
+    check(vkAllocateMemory(device, &storage_allocation, nullptr, &storage_memory));
+    check(vkBindBufferMemory(device, storage_buffer, storage_memory, 0));
+
+    // upload-buffer-vertex-unflushed
+    VkBufferCreateInfo vertex_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    vertex_info.size = data_size;
+    vertex_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    vertex_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer vertex_buffer;
+    check(vkCreateBuffer(device, &vertex_info, nullptr, &vertex_buffer));
+    VkDebugUtilsObjectNameInfoEXT vertex_name{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
+    vertex_name.objectType = VK_OBJECT_TYPE_BUFFER;
+    vertex_name.objectHandle = reinterpret_cast<uint64_t>(vertex_buffer);
+    vertex_name.pObjectName = "upload-buffer-vertex-unflushed";
+    check(set_name(device, &vertex_name));
+    VkMemoryRequirements vertex_requirements;
+    vkGetBufferMemoryRequirements(device, vertex_buffer, &vertex_requirements);
+    VkMemoryAllocateInfo vertex_allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    vertex_allocation.allocationSize = vertex_requirements.size;
+    while (vertex_allocation.memoryTypeIndex < properties.memoryTypeCount &&
+           (!(vertex_requirements.memoryTypeBits & (1u << vertex_allocation.memoryTypeIndex)) ||
+            (properties.memoryTypes[vertex_allocation.memoryTypeIndex].propertyFlags & upload_required) != upload_required))
+        ++vertex_allocation.memoryTypeIndex;
+    if (vertex_allocation.memoryTypeIndex == properties.memoryTypeCount) return kExitSkip;
+    VkDeviceMemory vertex_memory;
+    check(vkAllocateMemory(device, &vertex_allocation, nullptr, &vertex_memory));
+    check(vkBindBufferMemory(device, vertex_buffer, vertex_memory, 0));
+
     // readback-buffer
     VkBufferCreateInfo readback_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    readback_info.size = data_size;
+    readback_info.size = readback_size;
     readback_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     readback_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     VkBuffer readback_buffer;
@@ -163,6 +221,12 @@ int main(int argc, char** argv)
     std::memcpy(mapped, expected, data_size);
     // Upload memory is HOST_COHERENT; capture intentionally has no explicit flush.
     vkUnmapMemory(device, upload_memory);
+    check(vkMapMemory(device, storage_memory, 0, VK_WHOLE_SIZE, 0, &mapped));
+    std::memcpy(mapped, expected + data_size, data_size);
+    vkUnmapMemory(device, storage_memory);
+    check(vkMapMemory(device, vertex_memory, 0, VK_WHOLE_SIZE, 0, &mapped));
+    std::memcpy(mapped, expected + 2 * data_size, data_size);
+    vkUnmapMemory(device, vertex_memory);
 
     VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool_info.queueFamilyIndex = family;
@@ -200,6 +264,10 @@ int main(int argc, char** argv)
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &image_barrier);
     vkCmdCopyImageToBuffer(command, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buffer, 1, &copy);
+    VkBufferCopy storage_copy{0, data_size, data_size};
+    vkCmdCopyBuffer(command, storage_buffer, readback_buffer, 1, &storage_copy);
+    VkBufferCopy vertex_copy{0, 2 * data_size, data_size};
+    vkCmdCopyBuffer(command, vertex_buffer, readback_buffer, 1, &vertex_copy);
 
     VkBufferMemoryBarrier host_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
     host_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -229,7 +297,7 @@ int main(int argc, char** argv)
     const volatile unsigned char* readback = static_cast<unsigned char*>(mapped);
     unsigned mismatches = 0;
     unsigned checksum = 0;
-    for (unsigned i = 0; i < data_size; ++i)
+    for (unsigned i = 0; i < readback_size; ++i)
     {
         const unsigned char value = readback[i];
         checksum += value;
@@ -237,15 +305,19 @@ int main(int argc, char** argv)
     }
     vkUnmapMemory(device, readback_memory);
     std::printf("Read %u bytes from GPU transfer destination; checksum=%u; %s\n",
-                data_size, checksum, verify ? (mismatches ? "verification FAILED" : "verification PASSED") :
+                readback_size, checksum, verify ? (mismatches ? "verification FAILED" : "verification PASSED") :
                 "data comparison disabled (observation-only run)");
 
     vkDestroyFence(device, fence, nullptr);
     vkDestroyCommandPool(device, pool, nullptr);
     vkDestroyImage(device, image, nullptr);
     vkDestroyBuffer(device, upload_buffer, nullptr);
+    vkDestroyBuffer(device, storage_buffer, nullptr);
+    vkDestroyBuffer(device, vertex_buffer, nullptr);
     vkDestroyBuffer(device, readback_buffer, nullptr);
     vkFreeMemory(device, upload_memory, nullptr);
+    vkFreeMemory(device, storage_memory, nullptr);
+    vkFreeMemory(device, vertex_memory, nullptr);
     vkFreeMemory(device, readback_memory, nullptr);
     vkFreeMemory(device, image_memory, nullptr);
     vkDestroyDevice(device, nullptr);

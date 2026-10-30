@@ -19,5 +19,7 @@ replay:
 
 observe:
   upload-buffer-unflushed: memory-type
+  upload-buffer-storage-unflushed: memory-type
+  upload-buffer-vertex-unflushed: memory-type
   readback-buffer: memory-type
   optimal-image: memory-type

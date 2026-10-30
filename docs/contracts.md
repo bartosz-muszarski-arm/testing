@@ -42,7 +42,8 @@ Optimization needs no case-specific YAML configuration.
 
 `observe` names each resource and the property to record (`memory-type`).
 Assessments use the shared resource names `upload-buffer-unflushed`,
-`readback-buffer`, and `optimal-image`. Use the unflushed upload name only when
+`upload-buffer-storage-unflushed`, `upload-buffer-vertex-unflushed`,
+`readback-buffer`, and `optimal-image`. Use an unflushed upload name only when
 the workload writes without an explicit capture-side flush.
 The report compares observed capture and replay memory properties:
 
@@ -89,9 +90,13 @@ both capture and replay. All types carry DEVICE_LOCAL. The first three share
 an ordinary heap; protected memory uses a separate heap.
 
 Each case lists ordered capture and replay properties and observes the same
-three resources. The shared fixture writes a 1024-byte pattern to coherent
-upload memory without an explicit flush, transfers it through an optimal image,
-and invalidates and reads the readback buffer. Case names identify the memory
+five resources. The shared fixture writes distinct 1024-byte patterns to three
+coherent upload allocations without an explicit flush. It transfers one through
+an optimal image and copies the other two directly to separate readback ranges.
+The two additional buffers allow transfer source, transfer destination, and
+storage or vertex usage, respectively; both are used as transfer sources, not in
+storage or vertex commands. The workload invalidates and reads the full readback
+buffer. Case names identify the memory
 layout changes, including reordered types, a new local-only type, and changes
 to cache and coherence properties. The scenarios assess the selections using
 the role-specific rules above, rather than requiring an exact property list.

@@ -42,7 +42,8 @@ class ContractValidation(unittest.TestCase):
         self.report["stages"]["replay"]["objects"]["optimal-image"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT"]
         result = contract.evaluate(self.case, self.report)
         self.assertEqual(result["status"], "SUBOPTIMAL")
-        self.assertEqual([a["status"] for a in result["assessments"]], ["OPTIMAL", "SUBOPTIMAL", "SUBOPTIMAL"])
+        self.assertEqual([a["status"] for a in result["assessments"]],
+                         ["OPTIMAL", "OPTIMAL", "OPTIMAL", "SUBOPTIMAL", "SUBOPTIMAL"])
 
     def test_cached_and_coherent_readback_is_optimal(self):
         self.report["stages"]["replay"]["objects"]["readback-buffer"][0]["properties"] = ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"]
@@ -118,7 +119,18 @@ class ContractValidation(unittest.TestCase):
         self.assertEqual(set(self.case["observe"].values()), {"memory-type"})
         self.assertEqual(contract.assessments_for(self.case), {
             "upload-buffer-unflushed": "upload-buffer-unflushed",
+            "upload-buffer-storage-unflushed": "upload-buffer-storage-unflushed",
+            "upload-buffer-vertex-unflushed": "upload-buffer-vertex-unflushed",
             "readback-buffer": "readback-buffer", "optimal-image": "optimal-image"})
+
+    def test_each_upload_reports_loss_of_coherence(self):
+        for name in ("upload-buffer-unflushed", "upload-buffer-storage-unflushed",
+                     "upload-buffer-vertex-unflushed"):
+            with self.subTest(name=name):
+                report = copy.deepcopy(self.report)
+                report["stages"]["replay"]["objects"][name][0]["properties"] = ["HOST_VISIBLE", "HOST_CACHED"]
+                assessment = next(a for a in contract.assess(self.case, report) if a["resource"] == name)
+                self.assertEqual(assessment["status"], "ISSUE")
 
     def test_unknown_observation_requires_an_expectation(self):
         case = copy.deepcopy(self.case)
